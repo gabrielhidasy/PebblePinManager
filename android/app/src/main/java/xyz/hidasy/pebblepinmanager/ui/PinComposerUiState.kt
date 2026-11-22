@@ -45,6 +45,9 @@ data class PinComposerUiState(
     val selectedUtcIso8601: String
         get() = TimelineTimestampFormatter.toUtcIso8601(selectedEpochMillis)
 
+    val formattedLocalPayloadTime: String
+        get() = TimelineTimestampFormatter.formatLocalDateTimeWithZone(selectedEpochMillis, zoneId)
+
     val formattedLocalDate: String
         get() = TimelineTimestampFormatter.formatLocalDate(selectedDate)
 

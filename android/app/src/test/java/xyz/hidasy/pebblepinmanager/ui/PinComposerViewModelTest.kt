@@ -183,6 +183,8 @@ class PinComposerViewModelTest {
         assertEquals(LocalDate.of(2026, 11, 21), vm.uiState.value.selectedDate)
         assertEquals(LocalTime.of(9, 23), vm.uiState.value.selectedTime)
         assertEquals("2026-11-21T14:23:00Z", vm.uiState.value.selectedUtcIso8601)
+        assertTrue(vm.uiState.value.formattedLocalPayloadTime.contains("09:23"))
+        assertTrue(vm.uiState.value.formattedLocalPayloadTime.contains("UTC-05:00"))
         assertNull(vm.uiState.value.timeError)
         assertNull(vm.uiState.value.feedback)
 
@@ -190,10 +192,12 @@ class PinComposerViewModelTest {
         vm.applyQuickOffsetMinutes(15)
         assertEquals(LocalTime.of(9, 38), vm.uiState.value.selectedTime)
         assertEquals("2026-11-21T14:38:00Z", vm.uiState.value.selectedUtcIso8601)
+        assertTrue(vm.uiState.value.formattedLocalPayloadTime.contains("09:38"))
 
         vm.applyQuickOffsetMinutes(60)
         assertEquals(LocalTime.of(10, 38), vm.uiState.value.selectedTime)
         assertEquals("2026-11-21T15:38:00Z", vm.uiState.value.selectedUtcIso8601)
+        assertTrue(vm.uiState.value.formattedLocalPayloadTime.contains("10:38"))
     }
 
     @Test
