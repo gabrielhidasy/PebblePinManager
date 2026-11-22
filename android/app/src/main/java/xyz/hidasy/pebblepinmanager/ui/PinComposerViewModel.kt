@@ -161,12 +161,27 @@ class PinComposerViewModel(
         }
     }
 
-    fun applyQuickOffsetMinutes(minutesFromNow: Long) {
-        val target = ZonedDateTime.now(clock)
-            .plusMinutes(minutesFromNow)
-            .truncatedTo(ChronoUnit.MINUTES)
-        _uiState.update {
-            it.copy(
+    fun applyNow() {
+        _uiState.update { state ->
+            val now = Instant.now(clock)
+                .atZone(state.zoneId)
+                .truncatedTo(ChronoUnit.MINUTES)
+            state.copy(
+                selectedDate = now.toLocalDate(),
+                selectedTime = now.toLocalTime(),
+                timeError = null,
+                feedback = null,
+            )
+        }
+    }
+
+    fun applyQuickOffsetMinutes(minutes: Long) {
+        _uiState.update { state ->
+            val target = Instant.ofEpochMilli(state.selectedEpochMillis)
+                .plus(minutes, ChronoUnit.MINUTES)
+                .atZone(state.zoneId)
+                .truncatedTo(ChronoUnit.MINUTES)
+            state.copy(
                 selectedDate = target.toLocalDate(),
                 selectedTime = target.toLocalTime(),
                 timeError = null,

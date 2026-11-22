@@ -120,6 +120,7 @@ fun PinComposerRoute(
         onDurationInputChange = viewModel::onDurationInputChange,
         onDurationPresetSelected = viewModel::onDurationPresetSelected,
         onBackgroundColorSelected = viewModel::onBackgroundColorSelected,
+        onSetNow = viewModel::applyNow,
         onQuickOffsetMinutes = viewModel::applyQuickOffsetMinutes,
         onTomorrowMorning = { viewModel.applyTomorrowMorning() },
         onRefreshStatus = viewModel::refreshCompanionStatus,
@@ -143,6 +144,7 @@ fun PinComposerScreen(
     onDurationInputChange: (String) -> Unit,
     onDurationPresetSelected: (Int?) -> Unit,
     onBackgroundColorSelected: (PinAccentColor?) -> Unit,
+    onSetNow: () -> Unit,
     onQuickOffsetMinutes: (Long) -> Unit,
     onTomorrowMorning: () -> Unit,
     onRefreshStatus: () -> Unit,
@@ -236,6 +238,7 @@ fun PinComposerScreen(
                             onDurationInputChange = onDurationInputChange,
                             onDurationPresetSelected = onDurationPresetSelected,
                             onBackgroundColorSelected = onBackgroundColorSelected,
+                            onSetNow = onSetNow,
                             onQuickOffsetMinutes = onQuickOffsetMinutes,
                             onTomorrowMorning = onTomorrowMorning,
                             onSendPin = onSendPin,
@@ -289,6 +292,7 @@ fun PinComposerScreen(
                                 onDurationInputChange = onDurationInputChange,
                                 onDurationPresetSelected = onDurationPresetSelected,
                                 onBackgroundColorSelected = onBackgroundColorSelected,
+                                onSetNow = onSetNow,
                                 onQuickOffsetMinutes = onQuickOffsetMinutes,
                                 onTomorrowMorning = onTomorrowMorning,
                                 onSendPin = onSendPin,
@@ -433,6 +437,7 @@ private fun PinComposerCard(
     onDurationInputChange: (String) -> Unit,
     onDurationPresetSelected: (Int?) -> Unit,
     onBackgroundColorSelected: (PinAccentColor?) -> Unit,
+    onSetNow: () -> Unit,
     onQuickOffsetMinutes: (Long) -> Unit,
     onTomorrowMorning: () -> Unit,
     onSendPin: () -> Unit,
@@ -573,6 +578,10 @@ private fun PinComposerCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                AssistChip(
+                    onClick = onSetNow,
+                    label = { Text("Now") },
+                )
                 AssistChip(
                     onClick = { onQuickOffsetMinutes(15) },
                     label = { Text("+15 min") },
@@ -1227,6 +1236,7 @@ private fun PinComposerScreenPreviews() {
             onDurationInputChange = {},
             onDurationPresetSelected = {},
             onBackgroundColorSelected = {},
+            onSetNow = {},
             onQuickOffsetMinutes = {},
             onTomorrowMorning = {},
             onRefreshStatus = {},

@@ -126,17 +126,74 @@ class PinComposerViewModelTest {
     }
 
     @Test
-    fun `quick offset updates selected date and time`() = runTest {
+    fun `quick offset adds to current payload time and rolls over dates`() = runTest {
         val vm = PinComposerViewModel(StubTimelinePinSender(), StubSentPinRepository(), fixedClock)
         advanceUntilIdle()
 
+        // Initial state is fixedClock (12:00) + default 15 min = 12:15
+        assertEquals(LocalDate.of(2026, 11, 21), vm.uiState.value.selectedDate)
+        assertEquals(LocalTime.of(12, 15), vm.uiState.value.selectedTime)
+
+        vm.applyQuickOffsetMinutes(15)
+        assertEquals(LocalDate.of(2026, 11, 21), vm.uiState.value.selectedDate)
+        assertEquals(LocalTime.of(12, 30), vm.uiState.value.selectedTime)
+        assertEquals("2026-11-21T12:30:00Z", vm.uiState.value.selectedUtcIso8601)
+
         vm.applyQuickOffsetMinutes(60)
         assertEquals(LocalDate.of(2026, 11, 21), vm.uiState.value.selectedDate)
-        assertEquals(LocalTime.of(13, 0), vm.uiState.value.selectedTime)
+        assertEquals(LocalTime.of(13, 30), vm.uiState.value.selectedTime)
+        assertEquals("2026-11-21T13:30:00Z", vm.uiState.value.selectedUtcIso8601)
 
         vm.applyTomorrowMorning(9, 0)
         assertEquals(LocalDate.of(2026, 11, 22), vm.uiState.value.selectedDate)
         assertEquals(LocalTime.of(9, 0), vm.uiState.value.selectedTime)
+
+        vm.applyQuickOffsetMinutes(60)
+        assertEquals(LocalDate.of(2026, 11, 22), vm.uiState.value.selectedDate)
+        assertEquals(LocalTime.of(10, 0), vm.uiState.value.selectedTime)
+
+        // Midnight rollover
+        vm.onDateSelected(LocalDate.of(2026, 11, 21))
+        vm.onTimeSelected(LocalTime.of(23, 50))
+        vm.applyQuickOffsetMinutes(15)
+        assertEquals(LocalDate.of(2026, 11, 22), vm.uiState.value.selectedDate)
+        assertEquals(LocalTime.of(0, 5), vm.uiState.value.selectedTime)
+    }
+
+    @Test
+    fun `applyNow sets payload time to current clock truncated to minutes and clears time error`() = runTest {
+        val clockWithSeconds = Clock.fixed(
+            Instant.parse("2026-11-21T14:23:47Z"),
+            ZoneId.of("America/New_York"),
+        )
+        val vm = PinComposerViewModel(StubTimelinePinSender(), StubSentPinRepository(), clockWithSeconds)
+        advanceUntilIdle()
+
+        // Force a time validation error by selecting a date far in the past
+        vm.onTitleChange("Past Event")
+        vm.onDateSelected(LocalDate.of(2026, 11, 1))
+        vm.onTimeSelected(LocalTime.of(10, 0))
+        vm.sendPin()
+        advanceUntilIdle()
+        assertNotNull(vm.uiState.value.timeError)
+        assertNotNull(vm.uiState.value.feedback)
+
+        // applyNow should reset to 09:23 EST (14:23:00Z) and clear timeError + feedback
+        vm.applyNow()
+        assertEquals(LocalDate.of(2026, 11, 21), vm.uiState.value.selectedDate)
+        assertEquals(LocalTime.of(9, 23), vm.uiState.value.selectedTime)
+        assertEquals("2026-11-21T14:23:00Z", vm.uiState.value.selectedUtcIso8601)
+        assertNull(vm.uiState.value.timeError)
+        assertNull(vm.uiState.value.feedback)
+
+        // Subsequent +15 min and +1h advance from the newly set payload time
+        vm.applyQuickOffsetMinutes(15)
+        assertEquals(LocalTime.of(9, 38), vm.uiState.value.selectedTime)
+        assertEquals("2026-11-21T14:38:00Z", vm.uiState.value.selectedUtcIso8601)
+
+        vm.applyQuickOffsetMinutes(60)
+        assertEquals(LocalTime.of(10, 38), vm.uiState.value.selectedTime)
+        assertEquals("2026-11-21T15:38:00Z", vm.uiState.value.selectedUtcIso8601)
     }
 
     @Test
