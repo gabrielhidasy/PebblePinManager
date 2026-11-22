@@ -41,7 +41,7 @@ class WatchPinSyncManagerTest {
             pinSender = FakeTimelinePinSender(),
             repository = repo,
             messenger = messenger,
-            onOpenPhoneUi = { true },
+            onOpenPhoneUi = { PhoneUiOpenResult.OpenedDirect(DirectLaunchReason.APP_IN_FOREGROUND) },
             clock = fixedClock,
         )
 
@@ -81,7 +81,7 @@ class WatchPinSyncManagerTest {
             pinSender = FakeTimelinePinSender(),
             repository = repo,
             messenger = messenger,
-            onOpenPhoneUi = { true },
+            onOpenPhoneUi = { PhoneUiOpenResult.OpenedDirect(DirectLaunchReason.APP_IN_FOREGROUND) },
             clock = fixedClock,
         )
 
@@ -113,7 +113,7 @@ class WatchPinSyncManagerTest {
             pinSender = pinSender,
             repository = repo,
             messenger = messenger,
-            onOpenPhoneUi = { true },
+            onOpenPhoneUi = { PhoneUiOpenResult.OpenedDirect(DirectLaunchReason.APP_IN_FOREGROUND) },
             clock = fixedClock,
         )
 
@@ -175,7 +175,7 @@ class WatchPinSyncManagerTest {
             pinSender = pinSender,
             repository = repo,
             messenger = RecordingWatchAppMessenger(),
-            onOpenPhoneUi = { true },
+            onOpenPhoneUi = { PhoneUiOpenResult.OpenedDirect(DirectLaunchReason.APP_IN_FOREGROUND) },
             clock = dstClock,
             zoneIdProvider = { nyZone },
         )
@@ -214,7 +214,7 @@ class WatchPinSyncManagerTest {
             pinSender = pinSender,
             repository = repo,
             messenger = messenger,
-            onOpenPhoneUi = { true },
+            onOpenPhoneUi = { PhoneUiOpenResult.OpenedDirect(DirectLaunchReason.APP_IN_FOREGROUND) },
             clock = fixedClock,
         )
 
@@ -253,7 +253,7 @@ class WatchPinSyncManagerTest {
             pinSender = pinSender,
             repository = repo,
             messenger = messenger,
-            onOpenPhoneUi = { true },
+            onOpenPhoneUi = { PhoneUiOpenResult.OpenedDirect(DirectLaunchReason.APP_IN_FOREGROUND) },
             clock = fixedClock,
         )
 
@@ -301,7 +301,7 @@ class WatchPinSyncManagerTest {
             pinSender = pinSender,
             repository = repo,
             messenger = messenger,
-            onOpenPhoneUi = { true },
+            onOpenPhoneUi = { PhoneUiOpenResult.OpenedDirect(DirectLaunchReason.APP_IN_FOREGROUND) },
             clock = fixedClock,
         )
 
@@ -321,7 +321,7 @@ class WatchPinSyncManagerTest {
     }
 
     @Test
-    fun `handleWatchMessage open phone request invokes callback and sends watch feedback`() = runTest {
+    fun `handleWatchMessage open phone request reports direct foreground open`() = runTest {
         var openCount = 0
         val messenger = RecordingWatchAppMessenger()
         val manager = WatchPinSyncManager(
@@ -330,7 +330,7 @@ class WatchPinSyncManagerTest {
             messenger = messenger,
             onOpenPhoneUi = {
                 openCount++
-                true
+                PhoneUiOpenResult.OpenedDirect(DirectLaunchReason.APP_IN_FOREGROUND)
             },
             clock = fixedClock,
         )
@@ -342,11 +342,104 @@ class WatchPinSyncManagerTest {
             watch = watch,
         )
 
-        assertEquals(WatchHandleOutcome.OpenPhoneHandled(true), outcome)
+        assertEquals(
+            WatchHandleOutcome.OpenPhoneHandled(
+                PhoneUiOpenResult.OpenedDirect(DirectLaunchReason.APP_IN_FOREGROUND),
+            ),
+            outcome,
+        )
         assertEquals(1, openCount)
+        val feedback = messenger.sentMessages.single().data
+        assertEquals(PebbleDictionaryItem.UInt8(1), feedback[WatchAppProtocol.KEY_STATUS_OK])
         assertEquals(
             PebbleDictionaryItem.Text("Opened phone app"),
-            messenger.sentMessages.single().data[WatchAppProtocol.KEY_STATUS_TEXT],
+            feedback[WatchAppProtocol.KEY_STATUS_TEXT],
+        )
+    }
+
+    @Test
+    fun `handleWatchMessage open phone request reports background notification handoff`() = runTest {
+        val messenger = RecordingWatchAppMessenger()
+        val manager = WatchPinSyncManager(
+            pinSender = FakeTimelinePinSender(),
+            repository = InMemorySentPinRepository(),
+            messenger = messenger,
+            onOpenPhoneUi = { PhoneUiOpenResult.NotificationPosted },
+            clock = fixedClock,
+        )
+
+        val outcome = manager.handleWatchMessage(
+            data = mapOf(
+                WatchAppProtocol.KEY_MSG_TYPE to PebbleDictionaryItem.UInt8(WatchAppProtocol.MSG_WATCH_REQ_OPEN_PHONE),
+            ),
+            watch = watch,
+        )
+
+        assertEquals(
+            WatchHandleOutcome.OpenPhoneHandled(PhoneUiOpenResult.NotificationPosted),
+            outcome,
+        )
+        val feedback = messenger.sentMessages.single().data
+        assertEquals(PebbleDictionaryItem.UInt8(1), feedback[WatchAppProtocol.KEY_STATUS_OK])
+        assertEquals(
+            PebbleDictionaryItem.Text("Tap phone notification"),
+            feedback[WatchAppProtocol.KEY_STATUS_TEXT],
+        )
+    }
+
+    @Test
+    fun `handleWatchMessage open phone request reports error when blocked in background`() = runTest {
+        val messenger = RecordingWatchAppMessenger()
+        val manager = WatchPinSyncManager(
+            pinSender = FakeTimelinePinSender(),
+            repository = InMemorySentPinRepository(),
+            messenger = messenger,
+            onOpenPhoneUi = { PhoneUiOpenResult.Blocked("BAL blocked and notifications disabled") },
+            clock = fixedClock,
+        )
+
+        val outcome = manager.handleWatchMessage(
+            data = mapOf(
+                WatchAppProtocol.KEY_MSG_TYPE to PebbleDictionaryItem.UInt8(WatchAppProtocol.MSG_WATCH_REQ_OPEN_PHONE),
+            ),
+            watch = watch,
+        )
+
+        assertTrue(outcome is WatchHandleOutcome.OpenPhoneHandled)
+        assertTrue((outcome as WatchHandleOutcome.OpenPhoneHandled).result is PhoneUiOpenResult.Blocked)
+        val feedback = messenger.sentMessages.single().data
+        assertEquals(PebbleDictionaryItem.UInt8(0), feedback[WatchAppProtocol.KEY_STATUS_OK])
+        assertEquals(
+            PebbleDictionaryItem.Text("Open app on phone"),
+            feedback[WatchAppProtocol.KEY_STATUS_TEXT],
+        )
+    }
+
+    @Test
+    fun `handleWatchMessage open phone request handles launcher exception gracefully`() = runTest {
+        val messenger = RecordingWatchAppMessenger()
+        val manager = WatchPinSyncManager(
+            pinSender = FakeTimelinePinSender(),
+            repository = InMemorySentPinRepository(),
+            messenger = messenger,
+            onOpenPhoneUi = { throw IllegalStateException("Unexpected launcher crash") },
+            clock = fixedClock,
+        )
+
+        val outcome = manager.handleWatchMessage(
+            data = mapOf(
+                WatchAppProtocol.KEY_MSG_TYPE to PebbleDictionaryItem.UInt8(WatchAppProtocol.MSG_WATCH_REQ_OPEN_PHONE),
+            ),
+            watch = watch,
+        )
+
+        assertTrue(outcome is WatchHandleOutcome.OpenPhoneHandled)
+        assertTrue((outcome as WatchHandleOutcome.OpenPhoneHandled).result is PhoneUiOpenResult.Blocked)
+        val feedback = messenger.sentMessages.single().data
+        assertEquals(PebbleDictionaryItem.UInt8(0), feedback[WatchAppProtocol.KEY_STATUS_OK])
+        assertEquals(
+            PebbleDictionaryItem.Text("Open app on phone"),
+            feedback[WatchAppProtocol.KEY_STATUS_TEXT],
         )
     }
 }

@@ -22,7 +22,7 @@ class WatchPinSyncManager(
     private val pinSender: TimelinePinSender,
     private val repository: SentPinRepository,
     private val messenger: WatchAppMessenger,
-    private val onOpenPhoneUi: () -> Boolean,
+    private val onOpenPhoneUi: () -> PhoneUiOpenResult,
     private val clock: Clock = Clock.systemDefaultZone(),
     private val zoneIdProvider: () -> ZoneId = { clock.zone },
 ) {
@@ -96,13 +96,18 @@ class WatchPinSyncManager(
             }
 
             WatchRequest.OpenPhoneUi -> {
-                val opened = runCatching { onOpenPhoneUi() }.getOrDefault(false)
-                val statusText = if (opened) "Opened phone app" else "Open app on phone"
+                val openResult = runCatching { onOpenPhoneUi() }
+                    .getOrElse { error ->
+                        PhoneUiOpenResult.Blocked(error.message ?: "Failed to open phone UI")
+                    }
                 messenger.sendToWatch(
-                    data = WatchAppProtocol.encodeActionResult(ok = opened, statusText = statusText),
+                    data = WatchAppProtocol.encodeActionResult(
+                        ok = openResult.watchStatusOk,
+                        statusText = openResult.watchStatusText,
+                    ),
                     targetWatch = watch,
                 )
-                WatchHandleOutcome.OpenPhoneHandled(opened)
+                WatchHandleOutcome.OpenPhoneHandled(openResult)
             }
 
             is WatchRequest.ReschedulePin -> handleReschedule(request, watch)
@@ -262,7 +267,7 @@ sealed interface WatchSyncResult {
 sealed interface WatchHandleOutcome {
     data object Ignored : WatchHandleOutcome
     data class SyncHandled(val syncResult: WatchSyncResult) : WatchHandleOutcome
-    data class OpenPhoneHandled(val opened: Boolean) : WatchHandleOutcome
+    data class OpenPhoneHandled(val result: PhoneUiOpenResult) : WatchHandleOutcome
     data class PinRescheduled(val pinId: String, val newStartTimeMillis: Long) : WatchHandleOutcome
     data class PinDeleted(val pinId: String) : WatchHandleOutcome
     data class ActionFailed(val reason: String) : WatchHandleOutcome

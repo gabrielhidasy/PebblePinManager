@@ -2,6 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
+        Required on Android 13+ (API 33+) to show a high-priority tap-to-open notification when
+        "Open Phone App" is triggered on the Pebble watch while PebblePinManager is in the background.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+        Optional: when explicitly granted by the user ("Display over other apps"), Android 10+
+        exempts PebblePinManager from Background Activity Launch (BAL) restrictions so "Open Phone
+        App" on the watch can open MainActivity immediately without tapping a notification.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!--
         PebbleKit Android 2 client manifest automatically merges the
         io.rebble.pebblekit2.SEND_DATA_TO_WATCH <queries> entry so Android 11+
         package visibility can discover installed Core Devices Pebble / microPebble apps.

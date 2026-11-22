@@ -44,8 +44,10 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Watch
+import androidx.compose.material.icons.outlined.Notifications as NotificationsOutlined
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -102,6 +104,7 @@ import xyz.hidasy.pebblepinmanager.domain.TimelineEvent
 import xyz.hidasy.pebblepinmanager.domain.TimelineTimestampFormatter
 import xyz.hidasy.pebblepinmanager.pebble.ConnectedPebbleWatch
 import xyz.hidasy.pebblepinmanager.pebble.PebbleCompanionStatus
+import xyz.hidasy.pebblepinmanager.pebble.PhoneHandoffCapabilities
 import xyz.hidasy.pebblepinmanager.ui.theme.PebblePinManagerTheme
 import java.time.Instant
 import java.time.LocalDate
@@ -111,6 +114,12 @@ import java.time.ZoneOffset
 @Composable
 fun PinComposerRoute(
     viewModel: PinComposerViewModel,
+    handoffCapabilities: PhoneHandoffCapabilities? = null,
+    isHandoffBannerDismissed: Boolean = false,
+    onDismissHandoffBanner: () -> Unit = {},
+    onRequestNotificationPermission: () -> Unit = {},
+    onOpenNotificationSettings: () -> Unit = {},
+    onOpenOverlaySettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -132,6 +141,12 @@ fun PinComposerRoute(
         onEditPin = viewModel::startEditingPin,
         onCancelEdit = viewModel::cancelEditing,
         onDeletePin = viewModel::deletePin,
+        handoffCapabilities = handoffCapabilities,
+        isHandoffBannerDismissed = isHandoffBannerDismissed,
+        onDismissHandoffBanner = onDismissHandoffBanner,
+        onRequestNotificationPermission = onRequestNotificationPermission,
+        onOpenNotificationSettings = onOpenNotificationSettings,
+        onOpenOverlaySettings = onOpenOverlaySettings,
         modifier = modifier,
     )
 }
@@ -156,10 +171,17 @@ fun PinComposerScreen(
     onEditPin: (SentPinRecord) -> Unit,
     onCancelEdit: () -> Unit,
     onDeletePin: (String) -> Unit,
+    handoffCapabilities: PhoneHandoffCapabilities? = null,
+    isHandoffBannerDismissed: Boolean = false,
+    onDismissHandoffBanner: () -> Unit = {},
+    onRequestNotificationPermission: () -> Unit = {},
+    onOpenNotificationSettings: () -> Unit = {},
+    onOpenOverlaySettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
     var showTimePicker by rememberSaveable { mutableStateOf(false) }
+    var showWatchHandoffDialog by rememberSaveable { mutableStateOf(false) }
     var pinPendingDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
     val pinPendingDelete = pinPendingDeleteId?.let { pendingId ->
         uiState.sentPins.firstOrNull { it.id == pendingId }
@@ -193,6 +215,23 @@ fun PinComposerScreen(
                     }
                 },
                 actions = {
+                    if (handoffCapabilities != null) {
+                        val isBellFilled = handoffCapabilities.isHandoffBellFilled
+                        IconButton(onClick = { showWatchHandoffDialog = true }) {
+                            Icon(
+                                imageVector = if (isBellFilled) {
+                                    Icons.Default.Notifications
+                                } else {
+                                    Icons.Outlined.NotificationsOutlined
+                                },
+                                contentDescription = if (isBellFilled) {
+                                    "Watch handoff settings (enabled)"
+                                } else {
+                                    "Watch handoff settings (permissions needed)"
+                                },
+                            )
+                        }
+                    }
                     IconButton(onClick = onRefreshStatus) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
@@ -229,6 +268,14 @@ fun PinComposerScreen(
                             companionStatus = uiState.companionStatus,
                             connectedWatches = uiState.connectedWatches,
                         )
+
+                        if (handoffCapabilities?.shouldShowPermissionBanner(isHandoffBannerDismissed) == true) {
+                            WatchHandoffWarningCard(
+                                onDismiss = onDismissHandoffBanner,
+                                onEnableNotifications = onRequestNotificationPermission,
+                                onEnableInstantOpen = onOpenOverlaySettings,
+                            )
+                        }
 
                         PinComposerCard(
                             uiState = uiState,
@@ -284,6 +331,14 @@ fun PinComposerScreen(
                                 connectedWatches = uiState.connectedWatches,
                             )
 
+                            if (handoffCapabilities?.shouldShowPermissionBanner(isHandoffBannerDismissed) == true) {
+                                WatchHandoffWarningCard(
+                                    onDismiss = onDismissHandoffBanner,
+                                    onEnableNotifications = onRequestNotificationPermission,
+                                    onEnableInstantOpen = onOpenOverlaySettings,
+                                )
+                            }
+
                             PinComposerCard(
                                 uiState = uiState,
                                 isBusy = isBusy,
@@ -327,6 +382,16 @@ fun PinComposerScreen(
                 }
             }
         }
+    }
+
+    if (showWatchHandoffDialog && handoffCapabilities != null) {
+        WatchHandoffDialog(
+            capabilities = handoffCapabilities,
+            onDismiss = { showWatchHandoffDialog = false },
+            onRequestNotificationPermission = onRequestNotificationPermission,
+            onOpenNotificationSettings = onOpenNotificationSettings,
+            onOpenOverlaySettings = onOpenOverlaySettings,
+        )
     }
 
     pinPendingDelete?.let { pending ->
@@ -1036,6 +1101,158 @@ private fun PebbleStatusCard(
             }
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WatchHandoffWarningCard(
+    onDismiss: () -> Unit,
+    onEnableNotifications: () -> Unit,
+    onEnableInstantOpen: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.NotificationsOutlined,
+                    contentDescription = null,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "Watch \"Open Phone App\" needs permission",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Android blocks background app launches. Enable notifications for a tap-to-open alert, or allow Display over other apps to open immediately.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("Dismiss")
+                }
+                TextButton(onClick = onEnableInstantOpen) {
+                    Text("Instant Open")
+                }
+                Button(onClick = onEnableNotifications) {
+                    Text("Enable Notifications")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchHandoffDialog(
+    capabilities: PhoneHandoffCapabilities,
+    onDismiss: () -> Unit,
+    onRequestNotificationPermission: () -> Unit,
+    onOpenNotificationSettings: () -> Unit,
+    onOpenOverlaySettings: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Open from Pebble Watch") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = if (capabilities.requiresBackgroundHandoff) {
+                        "Android restricts opening apps directly from the background. Choose how \"Open Phone App\" on your Pebble reaches this phone:"
+                    } else {
+                        "This Android version allows opening PebblePinManager directly from your Pebble watch."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                HorizontalDivider()
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = if (capabilities.canPostNotifications) {
+                            "Tap-to-Open Notification: Enabled"
+                        } else {
+                            "Tap-to-Open Notification: Disabled"
+                        },
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "Posts a high-priority notification when the app is in the background.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            if (capabilities.canPostNotifications) {
+                                onOpenNotificationSettings()
+                            } else {
+                                onRequestNotificationPermission()
+                            }
+                        },
+                    ) {
+                        Text(
+                            if (capabilities.canPostNotifications) {
+                                "Notification Settings"
+                            } else {
+                                "Enable Notifications"
+                            },
+                        )
+                    }
+                }
+                if (capabilities.requiresBackgroundHandoff) {
+                    HorizontalDivider()
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = if (capabilities.canDrawOverlays) {
+                                "Instant Background Open: Enabled"
+                            } else {
+                                "Instant Background Open: Optional"
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Granting \"Display over other apps\" lets the watch open this screen immediately without tapping a notification.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        OutlinedButton(onClick = onOpenOverlaySettings) {
+                            Text(
+                                if (capabilities.canDrawOverlays) {
+                                    "Manage Overlay Permission"
+                                } else {
+                                    "Enable Instant Open"
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+    )
 }
 
 @Composable
