@@ -114,10 +114,11 @@ class PebbleKit2PinSender(
         fun create(
             context: Context,
             watchappUuid: UUID = PebblePinConfig.DEFAULT_WATCHAPP_UUID,
+            pebbleSender: PebbleSender? = null,
         ): PebbleKit2PinSender {
             val appContext = context.applicationContext
             return PebbleKit2PinSender(
-                pebbleSender = DefaultPebbleSender(appContext),
+                pebbleSender = pebbleSender ?: DefaultPebbleSender(appContext),
                 infoRetriever = DefaultPebbleInfoRetriever(appContext),
                 appPicker = DefaultPebbleAndroidAppPicker.getInstance(appContext),
                 watchappUuid = watchappUuid,

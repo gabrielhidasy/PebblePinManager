@@ -10,9 +10,10 @@ PebblePinManager consists of two cooperating components built for the modern **C
    - Uses **PebbleKit Android 2** (`io.rebble.pebblekit2:client:1.3.2` -> `DefaultPebbleSender.insertTimelinePin` / `deleteTimelinePin`) for direct local timeline delivery — no external server or API keys required.
    - Enter an event **Title** (required), **Description** (optional, up to 512 chars), **Date & Time** in your local timezone (automatically converted to UTC for the Pebble Timeline), plus custom **Icon**, **Duration**, and **Accent Color**.
    - Displays live companion app & connected watch status (`Pebble Time (basalt)` / `Pebble Time 2 (emery)`), adapts cleanly to phones, foldables, and landscape layouts, and persists sent pin history locally via AndroidX DataStore with in-place **Edit** and **Delete** actions.
-2. **Companion Pebble Watchapp (`watchapp/` — C, targeting `basalt` & `emery`):**
-   - Lightweight watchapp (`< 2 KB` RAM) registered under UUID `e4b7c3a1-8f2d-4c6e-9a51-7b3d2e8f1042` declaring `companionApp.android.apps` (`xyz.hidasy.pebblepinmanager` & `xyz.hidasy.pebblepinmanager.debug`) and `usesPermissions` (`Timeline`, `PebbleKit2`) so Core Devices' `libpebble3` authorizes the Android app to insert/update/delete timeline pins.
-   - Displays live phone Bluetooth connection status.
+2. **Companion Pebble Watchapp (`watchapp/` — C, targeting `aplite`, `basalt`, `chalk`, `diorite`, `emery`, `flint`, `gabbro`):**
+   - Lightweight watchapp registered under UUID `e4b7c3a1-8f2d-4c6e-9a51-7b3d2e8f1042` declaring `companionApp.android.apps` (`xyz.hidasy.pebblepinmanager` & `xyz.hidasy.pebblepinmanager.debug`) and `usesPermissions` (`Timeline`, `PebbleKit2`) so Core Devices' `libpebble3` authorizes the Android app to insert/update/delete timeline pins and exchange AppMessages.
+   - Displays a scrollable `MenuLayer` of recent sent pins synced from the Android companion app across monochrome, rectangular color, and round (`chalk` / `gabbro`) displays.
+   - Supports on-watch **Reschedule** (`+15m`, `+30m`, `+1h`, `+3h`, `Tomorrow (+1d)`, `-15m`, `-1h`) and **Delete Pin** (with confirmation) via native `ActionMenu`, plus a `SELECT` shortcut (long-press `SELECT` anywhere, or `Open Phone App`) to launch the Android composer UI.
 
 ## Project Structure
 

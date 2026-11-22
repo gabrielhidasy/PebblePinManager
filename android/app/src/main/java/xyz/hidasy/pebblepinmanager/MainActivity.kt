@@ -16,6 +16,7 @@ class MainActivity : ComponentActivity() {
         PinComposerViewModelFactory(
             pinSender = container.pinSender,
             repository = container.sentPinRepository,
+            onPinsChanged = { container.watchPinSyncManager.syncRecentPins() },
         )
     }
 

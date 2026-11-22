@@ -572,6 +572,30 @@ class PinComposerViewModelTest {
             )
         }
     }
+
+    @Test
+    fun `successful send and delete trigger optional onPinsChanged watch sync callback`() = runTest {
+        var syncTriggered = 0
+        val sender = StubTimelinePinSender()
+        val repo = StubSentPinRepository()
+        val vm = PinComposerViewModel(
+            pinSender = sender,
+            repository = repo,
+            clock = fixedClock,
+            onPinsChanged = { syncTriggered++ },
+            pinIdGenerator = { "ppm-sync" },
+        )
+        advanceUntilIdle()
+
+        vm.onTitleChange("Sync Watch Test")
+        vm.sendPin()
+        advanceUntilIdle()
+        assertEquals(1, syncTriggered)
+
+        vm.deletePin("ppm-sync")
+        advanceUntilIdle()
+        assertEquals(2, syncTriggered)
+    }
 }
 
 private class StubTimelinePinSender(

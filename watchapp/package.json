@@ -10,8 +10,13 @@
     "sdkVersion": "3",
     "enableMultiJS": false,
     "targetPlatforms": [
+      "aplite",
       "basalt",
-      "emery"
+      "chalk",
+      "diorite",
+      "emery",
+      "flint",
+      "gabbro"
     ],
     "watchapp": {
       "watchface": false

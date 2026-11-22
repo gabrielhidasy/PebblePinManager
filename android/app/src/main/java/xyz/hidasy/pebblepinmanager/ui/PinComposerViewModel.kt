@@ -34,6 +34,7 @@ class PinComposerViewModel(
     private val pinSender: TimelinePinSender,
     private val repository: SentPinRepository,
     private val clock: Clock = Clock.systemDefaultZone(),
+    private val onPinsChanged: (suspend () -> Unit)? = null,
     private val pinIdGenerator: () -> String = { TimelineEvent.generatePinId() },
 ) : ViewModel() {
 
@@ -318,6 +319,7 @@ class PinComposerViewModel(
                             sentAtMillis = clock.millis(),
                         ),
                     )
+                    notifyPinsChanged()
                     val localWhen = TimelineTimestampFormatter.formatLocalDateTimeWithZone(
                         epochMillis = validatedEvent.startTimeMillis,
                         zoneId = current.zoneId,
@@ -449,6 +451,7 @@ class PinComposerViewModel(
             when (result) {
                 is PinDeleteResult.Success -> {
                     repository.deletePinRecord(sanitizedId)
+                    notifyPinsChanged()
                     clearDeletedPinState(
                         deletedPinId = sanitizedId,
                         updatedStatus = updatedStatus,
@@ -462,6 +465,7 @@ class PinComposerViewModel(
 
                 is PinDeleteResult.UnknownPin -> {
                     repository.deletePinRecord(sanitizedId)
+                    notifyPinsChanged()
                     clearDeletedPinState(
                         deletedPinId = sanitizedId,
                         updatedStatus = updatedStatus,
@@ -524,6 +528,14 @@ class PinComposerViewModel(
                         )
                     }
                 }
+            }
+        }
+    }
+
+    private fun notifyPinsChanged() {
+        onPinsChanged?.let { callback ->
+            viewModelScope.launch {
+                runCatching { callback() }
             }
         }
     }
@@ -598,6 +610,7 @@ class PinComposerViewModel(
 class PinComposerViewModelFactory(
     private val pinSender: TimelinePinSender,
     private val repository: SentPinRepository,
+    private val onPinsChanged: (suspend () -> Unit)? = null,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -607,6 +620,7 @@ class PinComposerViewModelFactory(
         return PinComposerViewModel(
             pinSender = pinSender,
             repository = repository,
+            onPinsChanged = onPinsChanged,
         ) as T
     }
 }
