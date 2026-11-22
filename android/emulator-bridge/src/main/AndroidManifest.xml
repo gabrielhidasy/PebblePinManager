@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:name=".EmulatorBridgeApp"
+        android:allowBackup="false"
+        android:label="PebbleKit2 Emulator Bridge"
+        android:usesCleartextTraffic="true">
+
+        <!--
+            Exposes connected emulated Pebble watches via the official PebbleKit Android 2
+            ContentProvider contract (authority: <packageName>.pebblekit).
+        -->
+        <provider
+            android:name=".EmulatorBridgeProvider"
+            android:authorities="${applicationId}.pebblekit"
+            android:exported="true" />
+
+        <!--
+            Implements the official PebbleKit Android 2 bound service endpoint so
+            PebblePinManager's unmodified DefaultPebbleAndroidAppPicker and DefaultPebbleSender
+            automatically discover and send timeline pins to the live Pebble QEMU emulator.
+        -->
+        <service
+            android:name=".EmulatorBridgeSenderReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="io.rebble.pebblekit2.SEND_DATA_TO_WATCH" />
+            </intent-filter>
+        </service>
+
+        <!--
+            Runtime configuration hook for E2E scripts via `adb shell am broadcast`.
+        -->
+        <receiver
+            android:name=".BridgeConfigReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="xyz.hidasy.pebblepinmanager.emulatorbridge.CONFIGURE" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

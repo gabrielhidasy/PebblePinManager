@@ -1,0 +1,29 @@
+build/
+dist/
+node_modules/
+.wafpickle-*
+.lock-waf*
+*.pbw
+*.log
+.DS_Store
+__pycache__/
+*.pyc
+.pebble-venv/
+
+# Pebble watchapp build output
+watchapp/build/
+
+# Android / Gradle
+android/.gradle/
+android/local.properties
+android/.idea/
+android/build/
+android/app/build/
+*.iml
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+captures/
+.cxx/

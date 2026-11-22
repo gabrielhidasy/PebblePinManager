@@ -1,0 +1,48 @@
+{
+  "name": "pebblepinmanager-watchapp",
+  "author": "PebblePinManager",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "PebblePinManager",
+    "uuid": "e4b7c3a1-8f2d-4c6e-9a51-7b3d2e8f1042",
+    "sdkVersion": "3",
+    "enableMultiJS": false,
+    "targetPlatforms": [
+      "basalt",
+      "emery"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "companionApp": {
+      "android": {
+        "url": "https://github.com/gabrielhidasy/PebblePinManager",
+        "apps": [
+          {
+            "package": "xyz.hidasy.pebblepinmanager"
+          },
+          {
+            "package": "xyz.hidasy.pebblepinmanager.debug"
+          }
+        ]
+      }
+    },
+    "usesPermissions": [
+      {
+        "name": "Timeline",
+        "reason": "Insert and update custom timeline pins sent from the PebblePinManager Android app.",
+        "required": true
+      },
+      {
+        "name": "PebbleKit2",
+        "reason": "Allow the PebblePinManager Android companion app to send timeline pins to your watch.",
+        "required": true
+      }
+    ],
+    "resources": {
+      "media": []
+    }
+  }
+}
