@@ -93,11 +93,4 @@
     <path
         android:fillColor="#FFFFFFFF"
         android:pathData="M60.85,61.3 c0,1.46 1.19,2.65 2.65,2.65 s2.65,-1.19 2.65,-2.65 h-5.3 Z" />
-
-    <!-- Teal notification indicator badge -->
-    <path
-        android:fillColor="#FF4FD1C5"
-        android:pathData="M70.8,43.7 a3.1,3.1 0 1,1 0,6.2 a3.1,3.1 0 1,1 0,-6.2 Z"
-        android:strokeColor="#FFEC470B"
-        android:strokeWidth="1.3" />
 </vector>
