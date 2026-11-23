@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -157,6 +160,136 @@ class RunEmulatorE2ETests(unittest.TestCase):
         node = driver.wait_for_node(timeout=5.0, text_contains="Pin sent", scroll_direction="down")
         self.assertEqual(node.text, "Pin sent to Pebble Timeline")
         self.assertEqual(driver.swipes, ["down"])
+
+    def test_visual_content_analysis_detects_blank_and_rendered_screens(self) -> None:
+        ffmpeg = shutil.which("ffmpeg")
+        ffprobe = shutil.which("ffprobe")
+        if not ffmpeg or not ffprobe:
+            self.skipTest("ffmpeg/ffprobe not available")
+
+        with tempfile.TemporaryDirectory(prefix="pebble-e2e-visual-") as tmp:
+            tmp_dir = pathlib.Path(tmp)
+            blank_png = tmp_dir / "blank.png"
+            ui_png = tmp_dir / "ui.png"
+            poster_blank_android = tmp_dir / "poster-blank-android.png"
+            blank_mp4 = tmp_dir / "blank.mp4"
+            ui_mp4 = tmp_dir / "ui.mp4"
+
+            # Pure black 360x720 screenshot -> blank
+            subprocess.run(
+                [ffmpeg, "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=360x720", "-frames:v", "1", str(blank_png)],
+                check=True,
+            )
+            blank_stats = e2e.analyze_image_visual_content(blank_png, ffmpeg_bin=ffmpeg)
+            self.assertTrue(blank_stats["isBlank"])
+            self.assertEqual(blank_stats["colorBuckets"], 1)
+
+            # Synthetic Android UI with distinct header, cards, and accent button -> non-blank
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-v",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=0xf8fafc:s=360x720",
+                    "-vf",
+                    (
+                        "drawbox=x=0:y=0:w=360:h=80:color=0x1e293b:t=fill,"
+                        "drawbox=x=24:y=110:w=312:h=140:color=0xe2e8f0:t=fill,"
+                        "drawbox=x=24:y=280:w=312:h=64:color=0xff5500:t=fill,"
+                        "drawbox=x=24:y=380:w=180:h=40:color=0x16a34a:t=fill"
+                    ),
+                    "-frames:v",
+                    "1",
+                    str(ui_png),
+                ],
+                check=True,
+            )
+            ui_stats = e2e.analyze_image_visual_content(ui_png, ffmpeg_bin=ffmpeg)
+            self.assertFalse(ui_stats["isBlank"])
+            self.assertGreaterEqual(ui_stats["colorBuckets"], 4)
+            self.assertGreater(ui_stats["lumaStd"], 10.0)
+
+            # Side-by-side 1280x720 poster with blank Android left pane + colorful Pebble right pane:
+            # cropping the Android content rect MUST still detect the blank Android screen.
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-v",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=0x0f172a:s=1280x720",
+                    "-vf",
+                    (
+                        "drawbox=x=190:y=106:w=276:h=552:color=0x000000:t=fill,"
+                        "drawbox=x=752:y=154:w=400:h=456:color=0xff5500:t=fill,"
+                        "drawbox=x=780:y=200:w=300:h=120:color=0xffffff:t=fill"
+                    ),
+                    "-frames:v",
+                    "1",
+                    str(poster_blank_android),
+                ],
+                check=True,
+            )
+            poster_stats = e2e.analyze_image_visual_content(
+                poster_blank_android,
+                ffmpeg_bin=ffmpeg,
+                crop=e2e.POSTER_ANDROID_CONTENT_CROP,
+            )
+            self.assertTrue(poster_stats["isBlank"])
+
+            # Video analysis: solid black MP4 -> blank; synthetic UI MP4 -> non-blank
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-v",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:s=360x720:r=10:d=2",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    str(blank_mp4),
+                ],
+                check=True,
+            )
+            self.assertTrue(e2e.analyze_video_visual_content(blank_mp4, ffmpeg_bin=ffmpeg, ffprobe_bin=ffprobe)["isBlank"])
+
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-v",
+                    "error",
+                    "-loop",
+                    "1",
+                    "-i",
+                    str(ui_png),
+                    "-t",
+                    "2",
+                    "-r",
+                    "10",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    str(ui_mp4),
+                ],
+                check=True,
+            )
+            ui_vid_stats = e2e.analyze_video_visual_content(ui_mp4, ffmpeg_bin=ffmpeg, ffprobe_bin=ffprobe)
+            self.assertFalse(ui_vid_stats["isBlank"])
+            self.assertEqual(ui_vid_stats["nonBlankSamples"], ui_vid_stats["samplesChecked"])
 
 
 if __name__ == "__main__":

@@ -10,7 +10,8 @@ set -euo pipefail
 # Environment variables (all optional):
 #   ANDROID_HOME          Path to Android SDK (required unless --use-existing-adb)
 #   ANDROID_API_LEVEL     API level for system image (default: 30)
-#   ANDROID_IMAGE_TAG     System image tag: aosp_atd or default (default: aosp_atd)
+#   ANDROID_IMAGE_TAG     System image tag: default or aosp_atd (default: default;
+#                         aosp_atd disables hardware rendering so screenshots/videos are blank)
 #   ANDROID_ABI           ABI: x86_64 or x86 (default: x86_64)
 #   AVD_NAME              AVD name (default: pebblepin-e2e)
 #   EMULATOR_MEMORY_MB    RAM in MB (default: 2048)
@@ -21,7 +22,7 @@ set -euo pipefail
 #   USE_EXISTING_ADB      If "true", skip starting an AVD and wait for an existing ADB device
 
 ANDROID_API_LEVEL="${ANDROID_API_LEVEL:-30}"
-ANDROID_IMAGE_TAG="${ANDROID_IMAGE_TAG:-aosp_atd}"
+ANDROID_IMAGE_TAG="${ANDROID_IMAGE_TAG:-default}"
 ANDROID_ABI="${ANDROID_ABI:-x86_64}"
 AVD_NAME="${AVD_NAME:-pebblepin-e2e}"
 EMULATOR_MEMORY_MB="${EMULATOR_MEMORY_MB:-2048}"
@@ -94,6 +95,9 @@ export ANDROID_SDK_ROOT="${ANDROID_HOME}"
 export PATH="${ANDROID_HOME}/emulator:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/cmdline-tools/latest/bin:${PATH}"
 
 SYSTEM_IMAGE="system-images;android-${ANDROID_API_LEVEL};${ANDROID_IMAGE_TAG};${ANDROID_ABI}"
+if [ "${ANDROID_IMAGE_TAG}" = "aosp_atd" ]; then
+  echo "::warning::ANDROID_IMAGE_TAG=aosp_atd disables hardware rendering; Android screenshots and screen recordings may be blank. Use ANDROID_IMAGE_TAG=default for visual captures." >&2
+fi
 echo "==> Ensuring Android emulator & system image (${SYSTEM_IMAGE}) are installed..."
 yes | sdkmanager --licenses >/dev/null 2>&1 || true
 sdkmanager "emulator" "platform-tools" "${SYSTEM_IMAGE}"
@@ -109,6 +113,9 @@ echo "no" | avdmanager create avd \
 # Tune AVD hardware config for crisp portrait phone resolution and reliable headless E2E
 AVD_INI="${HOME}/.android/avd/${AVD_NAME}.avd/config.ini"
 if [ -f "${AVD_INI}" ]; then
+  sed -i -E \
+    '/^(hw\.keyboard|hw\.lcd\.width|hw\.lcd\.height|hw\.lcd\.density|hw\.ramSize|hw\.cpu\.ncore|disk\.dataPartition\.size|hw\.audioInput|hw\.audioOutput|hw\.gpu\.enabled|hw\.gpu\.mode)=/d' \
+    "${AVD_INI}"
   {
     echo "hw.keyboard=yes"
     echo "hw.lcd.width=1080"
@@ -119,6 +126,8 @@ if [ -f "${AVD_INI}" ]; then
     echo "disk.dataPartition.size=2048M"
     echo "hw.audioInput=no"
     echo "hw.audioOutput=no"
+    echo "hw.gpu.enabled=yes"
+    echo "hw.gpu.mode=swiftshader_indirect"
   } >> "${AVD_INI}"
 fi
 
@@ -163,6 +172,7 @@ adb shell settings put global window_animation_scale 0 >/dev/null 2>&1 || true
 adb shell settings put global transition_animation_scale 0 >/dev/null 2>&1 || true
 adb shell settings put global animator_duration_scale 0 >/dev/null 2>&1 || true
 adb shell settings put system screen_off_timeout 600000 >/dev/null 2>&1 || true
+adb shell svc power stayon true >/dev/null 2>&1 || true
 adb shell input keyevent 224 >/dev/null 2>&1 || true
 adb shell wm dismiss-keyguard >/dev/null 2>&1 || true
 adb devices -l

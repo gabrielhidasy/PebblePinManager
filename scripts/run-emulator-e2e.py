@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import signal
@@ -599,6 +600,158 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# Inner crop of the Android phone display inside the 1280x720 side-by-side demo poster
+# (left pane is x=58..598, y=106..658 with the portrait phone centered at x=328).
+POSTER_ANDROID_CONTENT_CROP = (218, 120, 220, 524)
+BLANK_LUMA_STD_THRESHOLD = 5.0
+BLANK_COLOR_BUCKETS_THRESHOLD = 4
+
+
+def _compute_rgb_stats(raw_rgb: bytes) -> dict[str, Any]:
+    usable = len(raw_rgb) - (len(raw_rgb) % 3)
+    if usable < 3:
+        return {
+            "pixelCount": 0,
+            "meanLuma": 0.0,
+            "minLuma": 0.0,
+            "maxLuma": 0.0,
+            "lumaStd": 0.0,
+            "colorBuckets": 0,
+            "isBlank": True,
+        }
+    pixel_count = usable // 3
+    sum_luma = 0.0
+    sum_luma_sq = 0.0
+    min_luma = 255.0
+    max_luma = 0.0
+    buckets: set[int] = set()
+    mv = memoryview(raw_rgb)[:usable]
+    for i in range(0, usable, 3):
+        r = mv[i]
+        g = mv[i + 1]
+        b = mv[i + 2]
+        luma = 0.299 * r + 0.587 * g + 0.114 * b
+        sum_luma += luma
+        sum_luma_sq += luma * luma
+        if luma < min_luma:
+            min_luma = luma
+        if luma > max_luma:
+            max_luma = luma
+        buckets.add(((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4))
+
+    mean_luma = sum_luma / pixel_count
+    variance = max(0.0, (sum_luma_sq / pixel_count) - (mean_luma * mean_luma))
+    luma_std = math.sqrt(variance)
+    color_buckets = len(buckets)
+    return {
+        "pixelCount": pixel_count,
+        "meanLuma": round(mean_luma, 2),
+        "minLuma": round(min_luma, 2),
+        "maxLuma": round(max_luma, 2),
+        "lumaStd": round(luma_std, 2),
+        "colorBuckets": color_buckets,
+        "isBlank": luma_std < BLANK_LUMA_STD_THRESHOLD or color_buckets < BLANK_COLOR_BUCKETS_THRESHOLD,
+    }
+
+
+def _decode_frame_rgb(
+    media_path: Path,
+    ffmpeg_bin: str = "ffmpeg",
+    seek_seconds: float | None = None,
+    crop: tuple[int, int, int, int] | None = None,
+    sample_width: int = 160,
+) -> bytes:
+    filters: list[str] = []
+    if crop is not None:
+        cx, cy, cw, ch = crop
+        filters.append(f"crop={cw}:{ch}:{cx}:{cy}")
+    if sample_width > 0:
+        filters.append(f"scale='min(iw,{sample_width})':-2")
+
+    cmd = [ffmpeg_bin, "-v", "error"]
+    if seek_seconds is not None and seek_seconds > 0:
+        cmd.extend(["-ss", f"{seek_seconds:.2f}"])
+    cmd.extend(["-i", str(media_path)])
+    if filters:
+        cmd.extend(["-vf", ",".join(filters)])
+    cmd.extend(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+
+    proc = subprocess.run(cmd, capture_output=True, timeout=20, check=False)
+    if proc.returncode != 0 or not proc.stdout:
+        err = proc.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"ffmpeg failed decoding visual frame from {media_path}: {err}")
+    return proc.stdout
+
+
+def analyze_image_visual_content(
+    image_path: Path,
+    ffmpeg_bin: str = "ffmpeg",
+    crop: tuple[int, int, int, int] | None = None,
+    sample_width: int = 160,
+) -> dict[str, Any]:
+    raw_rgb = _decode_frame_rgb(image_path, ffmpeg_bin=ffmpeg_bin, crop=crop, sample_width=sample_width)
+    stats = _compute_rgb_stats(raw_rgb)
+    stats["path"] = str(image_path)
+    return stats
+
+
+def analyze_video_visual_content(
+    video_path: Path,
+    ffmpeg_bin: str = "ffmpeg",
+    ffprobe_bin: str = "ffprobe",
+    crop: tuple[int, int, int, int] | None = None,
+    sample_width: int = 160,
+) -> dict[str, Any]:
+    probe = run_cmd(
+        [
+            ffprobe_bin,
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            str(video_path),
+        ],
+        timeout=20,
+        check=True,
+    )
+    info = json.loads(probe.stdout)
+    streams = [s for s in info.get("streams", []) if s.get("codec_type") == "video"]
+    duration = float(
+        info.get("format", {}).get("duration") or (streams[0].get("duration") if streams else 0.0) or 0.0
+    )
+    sample_times = [0.0] if duration <= 0.4 else [
+        round(min(max(0.0, duration * frac), max(0.0, duration - 0.1)), 2)
+        for frac in (0.25, 0.50, 0.75)
+    ]
+
+    samples: list[dict[str, Any]] = []
+    for ts in sample_times:
+        raw_rgb = _decode_frame_rgb(
+            video_path,
+            ffmpeg_bin=ffmpeg_bin,
+            seek_seconds=ts,
+            crop=crop,
+            sample_width=sample_width,
+        )
+        st = _compute_rgb_stats(raw_rgb)
+        st["t"] = ts
+        samples.append(st)
+
+    best = max(samples, key=lambda s: (s["lumaStd"], s["colorBuckets"]))
+    non_blank = sum(1 for s in samples if not s["isBlank"])
+    return {
+        "path": str(video_path),
+        "durationSeconds": round(duration, 2),
+        "samplesChecked": len(samples),
+        "nonBlankSamples": non_blank,
+        "bestLumaStd": best["lumaStd"],
+        "bestColorBuckets": best["colorBuckets"],
+        "isBlank": non_blank == 0,
+    }
+
+
 def run_platform_e2e(
     platform: str,
     apk_path: Path,
@@ -721,7 +874,20 @@ def run_platform_e2e(
             f"Android UI reports connected watch: '{watch_label_node.text}'",
         )
         time.sleep(1.8)
-        adb.screencap(screenshots_dir / "02-android-connected.png")
+        connected_png = screenshots_dir / "02-android-connected.png"
+        adb.screencap(connected_png)
+        connected_visual = analyze_image_visual_content(connected_png, ffmpeg_bin=ffmpeg_bin)
+        record_assertion(
+            "android_display_rendering",
+            not connected_visual["isBlank"],
+            f"Android screenshot {connected_png.name} rendered visible UI "
+            f"(lumaStd={connected_visual['lumaStd']}, colorBuckets={connected_visual['colorBuckets']}, "
+            f"meanLuma={connected_visual['meanLuma']})"
+            if not connected_visual["isBlank"]
+            else f"Android screenshot {connected_png.name} is blank/uniform "
+            f"(lumaStd={connected_visual['lumaStd']}, colorBuckets={connected_visual['colorBuckets']}, "
+            f"meanLuma={connected_visual['meanLuma']}); ensure ANDROID_IMAGE_TAG=default and GPU rendering are enabled",
+        )
 
         # 6. Scene 2: Create & send custom timeline pin (Title, Description, +15 min, Flag, 30 min, Orange)
         log("Scene 2: Creating and sending customized timeline pin...")
@@ -913,12 +1079,74 @@ def run_platform_e2e(
             f"{len(pebble_frames)} Pebble frames)",
         )
 
+        # Verify all Android milestone screenshots, recorded Android video, and composed poster pane are non-blank
+        android_milestone_stats: dict[str, dict[str, Any]] = {}
+        blank_milestones: list[str] = []
+        for png_name in (
+            "02-android-connected.png",
+            "03-android-pin-sent.png",
+            "04-android-pin-updated.png",
+            "05-android-pin-deleted.png",
+        ):
+            png_path = screenshots_dir / png_name
+            st = analyze_image_visual_content(png_path, ffmpeg_bin=ffmpeg_bin)
+            android_milestone_stats[png_name] = st
+            if st["isBlank"]:
+                blank_milestones.append(
+                    f"{png_name}(lumaStd={st['lumaStd']},buckets={st['colorBuckets']})"
+                )
+
+        record_assertion(
+            "android_screenshots_non_blank",
+            len(blank_milestones) == 0,
+            "All 4 Android milestone screenshots contain visible UI "
+            f"(min lumaStd={min(s['lumaStd'] for s in android_milestone_stats.values())}, "
+            f"min colorBuckets={min(s['colorBuckets'] for s in android_milestone_stats.values())})"
+            if not blank_milestones
+            else f"Blank Android milestone screenshot(s): {', '.join(blank_milestones)}",
+        )
+
+        android_video_stats: dict[str, Any] | None = None
+        if android_mp4 is not None and android_mp4.is_file():
+            android_video_stats = analyze_video_visual_content(
+                android_mp4,
+                ffmpeg_bin=ffmpeg_bin,
+                ffprobe_bin=ffprobe_bin,
+            )
+        poster_android_stats = analyze_image_visual_content(
+            poster_png,
+            ffmpeg_bin=ffmpeg_bin,
+            crop=POSTER_ANDROID_CONTENT_CROP,
+        )
+        android_video_ok = (android_video_stats is None or not android_video_stats["isBlank"]) and (
+            not poster_android_stats["isBlank"]
+        )
+        record_assertion(
+            "android_video_and_poster_non_blank",
+            android_video_ok,
+            f"Android recording & poster left pane rendered visible UI "
+            f"(poster lumaStd={poster_android_stats['lumaStd']}, "
+            f"colorBuckets={poster_android_stats['colorBuckets']}"
+            + (
+                f"; screenrecord {android_video_stats['nonBlankSamples']}/{android_video_stats['samplesChecked']} "
+                f"non-blank samples, bestLumaStd={android_video_stats['bestLumaStd']}"
+                if android_video_stats is not None
+                else ""
+            )
+            + ")",
+        )
+
         report = {
             "platform": platform,
             "status": "passed",
             "assertions": assertions,
             "bridgeEvents": events_after_delete["events"],
             "video": video_meta,
+            "visualChecks": {
+                "androidScreenshots": android_milestone_stats,
+                "androidVideo": android_video_stats,
+                "posterAndroidPane": poster_android_stats,
+            },
             "screenshots": sorted(str(p.relative_to(output_dir)) for p in screenshots_dir.glob("*.png")),
         }
         (output_dir / f"e2e-report-{platform}.json").write_text(
