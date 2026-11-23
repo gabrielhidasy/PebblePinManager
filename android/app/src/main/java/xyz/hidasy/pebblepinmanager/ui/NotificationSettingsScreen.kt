@@ -263,7 +263,8 @@ fun NotificationSettingsScreen(
                 ignoreOngoing = uiState.settings.ignoreOngoing,
                 ignoreGroupSummary = uiState.settings.ignoreGroupSummary,
                 deletePinOnDismiss = uiState.settings.deletePinOnDismiss,
-                isDevModeEnabled = uiState.settings.isDevModeEnabled,
+                isDevModeAvailable = uiState.isDevModeAvailable,
+                isDevModeEnabled = uiState.isDevModeEffectivelyEnabled,
                 onAutoPinEnabledChange = onAutoPinEnabledChange,
                 onExtractTimeFromTextChange = onExtractTimeFromTextChange,
                 onIgnoreOngoingChange = onIgnoreOngoingChange,
@@ -687,6 +688,7 @@ private fun AutoPinBehaviorCard(
     ignoreOngoing: Boolean,
     ignoreGroupSummary: Boolean,
     deletePinOnDismiss: Boolean,
+    isDevModeAvailable: Boolean,
     isDevModeEnabled: Boolean,
     onAutoPinEnabledChange: (Boolean) -> Unit,
     onExtractTimeFromTextChange: (Boolean) -> Unit,
@@ -740,13 +742,15 @@ private fun AutoPinBehaviorCard(
                 checked = deletePinOnDismiss,
                 onCheckedChange = onDeletePinOnDismissChange,
             )
-            HorizontalDivider()
-            SettingSwitchRow(
-                title = "Developer mode",
-                subtitle = "Show the Dev tab to inspect raw incoming notifications and explore regex rules interactively",
-                checked = isDevModeEnabled,
-                onCheckedChange = onDevModeEnabledChange,
-            )
+            if (isDevModeAvailable) {
+                HorizontalDivider()
+                SettingSwitchRow(
+                    title = "Developer mode",
+                    subtitle = "Show the Dev tab to inspect raw incoming notifications and explore regex rules interactively",
+                    checked = isDevModeEnabled,
+                    onCheckedChange = onDevModeEnabledChange,
+                )
+            }
         }
     }
 }

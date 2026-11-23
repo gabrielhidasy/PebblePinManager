@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import xyz.hidasy.pebblepinmanager.BuildConfig
 import xyz.hidasy.pebblepinmanager.PebblePinManagerApp
 
 /**
@@ -44,11 +45,14 @@ class PebbleNotificationListenerService : NotificationListenerService() {
         if (sbn.packageName == packageName) return
 
         val candidate = extractCandidate(sbn)
-        val rawSnapshot = buildRawRecord(sbn, candidate, capturedAtMillis = System.currentTimeMillis())
+        val rawSnapshot = if (BuildConfig.DEV_MODE_AVAILABLE) {
+            buildRawRecord(sbn, candidate, capturedAtMillis = System.currentTimeMillis())
+        } else {
+            null
+        }
         val app = application as? PebblePinManagerApp ?: return
         val pipeline = app.container.notificationPinPipeline
         val settingsRepo = app.container.notificationSettingsRepository
-        val rawRepo = app.container.rawNotificationRepository
 
         serviceScope.launch {
             var outcomeLabel: String? = null
@@ -81,14 +85,18 @@ class PebbleNotificationListenerService : NotificationListenerService() {
                 Log.e(TAG, "Unexpected error processing notification from ${candidate.sourcePackage}", err)
             }
 
-            try {
-                if (settingsRepo.getSettings().isDevModeEnabled) {
-                    rawRepo.recordNotification(rawSnapshot.copy(pipelineOutcome = outcomeLabel))
+            if (BuildConfig.DEV_MODE_AVAILABLE && rawSnapshot != null) {
+                try {
+                    if (settingsRepo.getSettings().isDevModeEnabled) {
+                        app.container.rawNotificationRepository.recordNotification(
+                            rawSnapshot.copy(pipelineOutcome = outcomeLabel),
+                        )
+                    }
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (err: Throwable) {
+                    Log.w(TAG, "Failed to record dev raw notification from ${candidate.sourcePackage}", err)
                 }
-            } catch (cancel: CancellationException) {
-                throw cancel
-            } catch (err: Throwable) {
-                Log.w(TAG, "Failed to record dev raw notification from ${candidate.sourcePackage}", err)
             }
         }
     }
@@ -213,6 +221,7 @@ class PebbleNotificationListenerService : NotificationListenerService() {
         fun snapshotActiveNotifications(
             capturedAtMillis: Long = System.currentTimeMillis(),
         ): List<RawNotificationRecord> {
+            if (!BuildConfig.DEV_MODE_AVAILABLE) return emptyList()
             val service = activeInstance ?: return emptyList()
             val active = runCatching { service.activeNotifications }.getOrNull() ?: return emptyList()
             return active

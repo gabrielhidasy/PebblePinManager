@@ -533,14 +533,61 @@ class NotificationSettingsViewModelTest {
         assertEquals(0, vm.uiState.value.configuredAppRulesCount)
         assertNull(vm.uiState.value.appRuleBadgeLabel(gmailPkg))
 
-        // Toggle Developer Mode on and off
+        // Toggle Developer Mode on and off (when available in -dev / debug builds)
+        assertTrue(vm.uiState.value.isDevModeAvailable)
         assertFalse(vm.uiState.value.settings.isDevModeEnabled)
+        assertFalse(vm.uiState.value.isDevModeEffectivelyEnabled)
         vm.onDevModeEnabledChange(true)
         advanceUntilIdle()
         assertTrue(vm.uiState.value.settings.isDevModeEnabled)
+        assertTrue(vm.uiState.value.isDevModeEffectivelyEnabled)
         vm.onDevModeEnabledChange(false)
         advanceUntilIdle()
         assertFalse(vm.uiState.value.settings.isDevModeEnabled)
+        assertFalse(vm.uiState.value.isDevModeEffectivelyEnabled)
+    }
+
+    @Test
+    fun `disables developer mode toggle and effective state when build excludes dev mode`() = runTest {
+        val settingsRepo = FakeNotificationSettingsRepository(
+            initial = NotificationRuleSettings(isDevModeEnabled = true),
+        )
+        val vm = NotificationSettingsViewModel(
+            settingsRepository = settingsRepo,
+            accessStatusChecker = object : NotificationAccessStatusChecker {
+                override fun isNotificationAccessEnabled(): Boolean = true
+            },
+            installedAppsProvider = FakeInstalledAppsProvider(emptyList()),
+            sentPinRepository = FakeNotifSentPinRepository(),
+            pinSender = FakeNotifTimelinePinSender(),
+            clock = fixedClock,
+            isDevModeAvailable = false,
+        )
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.isDevModeAvailable)
+        assertFalse(vm.uiState.value.isDevModeEffectivelyEnabled)
+
+        val freshRepo = FakeNotificationSettingsRepository(
+            initial = NotificationRuleSettings(isDevModeEnabled = false),
+        )
+        val freshVm = NotificationSettingsViewModel(
+            settingsRepository = freshRepo,
+            accessStatusChecker = object : NotificationAccessStatusChecker {
+                override fun isNotificationAccessEnabled(): Boolean = true
+            },
+            installedAppsProvider = FakeInstalledAppsProvider(emptyList()),
+            sentPinRepository = FakeNotifSentPinRepository(),
+            pinSender = FakeNotifTimelinePinSender(),
+            clock = fixedClock,
+            isDevModeAvailable = false,
+        )
+        advanceUntilIdle()
+
+        freshVm.onDevModeEnabledChange(true)
+        advanceUntilIdle()
+        assertFalse(freshRepo.getSettings().isDevModeEnabled)
+        assertFalse(freshVm.uiState.value.isDevModeEffectivelyEnabled)
     }
 }
 

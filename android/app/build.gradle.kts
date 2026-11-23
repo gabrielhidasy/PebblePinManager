@@ -81,6 +81,7 @@ android {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
             signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("boolean", "DEV_MODE_AVAILABLE", "true")
         }
         release {
             isMinifyEnabled = false
@@ -88,9 +89,16 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            buildConfigField("boolean", "DEV_MODE_AVAILABLE", "false")
             if (releaseKeystoreFile != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
+        }
+        create("releaseDev") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            versionNameSuffix = "-dev"
+            buildConfigField("boolean", "DEV_MODE_AVAILABLE", "true")
         }
     }
 

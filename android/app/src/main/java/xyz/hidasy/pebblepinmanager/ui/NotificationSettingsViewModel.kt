@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import xyz.hidasy.pebblepinmanager.BuildConfig
 import xyz.hidasy.pebblepinmanager.data.SentPinRepository
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
@@ -38,11 +39,13 @@ class NotificationSettingsViewModel(
     private val listenerConnectedFlow: Flow<Boolean> = flowOf(false),
     private val clock: Clock = Clock.systemDefaultZone(),
     private val onPinsChanged: (suspend () -> Unit)? = null,
+    private val isDevModeAvailable: Boolean = BuildConfig.DEV_MODE_AVAILABLE,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
         NotificationSettingsUiState(
             isNotificationAccessEnabled = accessStatusChecker.isNotificationAccessEnabled(),
+            isDevModeAvailable = isDevModeAvailable,
             zoneId = clock.zone,
         ),
     )
@@ -155,6 +158,7 @@ class NotificationSettingsViewModel(
     }
 
     fun onDevModeEnabledChange(enabled: Boolean) {
+        if (!isDevModeAvailable) return
         viewModelScope.launch {
             settingsRepository.updateSettings { it.copy(isDevModeEnabled = enabled) }
         }
@@ -732,6 +736,7 @@ class NotificationSettingsViewModelFactory(
     private val pinSender: TimelinePinSender,
     private val listenerConnectedFlow: Flow<Boolean>,
     private val onPinsChanged: (suspend () -> Unit)? = null,
+    private val isDevModeAvailable: Boolean = BuildConfig.DEV_MODE_AVAILABLE,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -746,6 +751,7 @@ class NotificationSettingsViewModelFactory(
             pinSender = pinSender,
             listenerConnectedFlow = listenerConnectedFlow,
             onPinsChanged = onPinsChanged,
+            isDevModeAvailable = isDevModeAvailable,
         ) as T
     }
 }

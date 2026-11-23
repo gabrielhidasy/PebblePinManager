@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.map
@@ -104,14 +105,21 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private val devModeViewModel: DevModeViewModel by viewModels {
-        DevModeViewModelFactory(
-            rawNotificationRepository = appContainer.rawNotificationRepository,
-            settingsRepository = appContainer.notificationSettingsRepository,
-            accessStatusChecker = appContainer.notificationAccessStatusChecker,
-            installedAppsProvider = appContainer.installedAppsProvider,
-            listenerConnectedFlow = PebbleNotificationListenerService.isListenerConnected,
-        )
+    private val devModeViewModel: DevModeViewModel? by lazy {
+        if (BuildConfig.DEV_MODE_AVAILABLE) {
+            ViewModelProvider(
+                this,
+                DevModeViewModelFactory(
+                    rawNotificationRepository = appContainer.rawNotificationRepository,
+                    settingsRepository = appContainer.notificationSettingsRepository,
+                    accessStatusChecker = appContainer.notificationAccessStatusChecker,
+                    installedAppsProvider = appContainer.installedAppsProvider,
+                    listenerConnectedFlow = PebbleNotificationListenerService.isListenerConnected,
+                ),
+            )[DevModeViewModel::class.java]
+        } else {
+            null
+        }
     }
 
     private var handoffCapabilities: PhoneHandoffCapabilities? by mutableStateOf(null)
@@ -231,7 +239,7 @@ private fun PebblePinManagerRoot(
     pinComposerViewModel: PinComposerViewModel,
     notificationSettingsViewModel: NotificationSettingsViewModel,
     simulatedTimelineViewModel: SimulatedTimelineViewModel,
-    devModeViewModel: DevModeViewModel,
+    devModeViewModel: DevModeViewModel?,
     handoffCapabilities: PhoneHandoffCapabilities?,
     isHandoffBannerDismissed: Boolean,
     onDismissHandoffBanner: () -> Unit,
@@ -244,8 +252,10 @@ private fun PebblePinManagerRoot(
     var showAppSettingsDialog by rememberSaveable { mutableStateOf(false) }
     val notificationState by notificationSettingsViewModel.uiState.collectAsStateWithLifecycle()
     val simulatedTimelineState by simulatedTimelineViewModel.uiState.collectAsStateWithLifecycle()
-    val devModeState by devModeViewModel.uiState.collectAsStateWithLifecycle()
-    val isDevModeEnabled = notificationState.settings.isDevModeEnabled
+    val devModeState = devModeViewModel?.uiState?.collectAsStateWithLifecycle()?.value
+    val isDevModeEnabled = BuildConfig.DEV_MODE_AVAILABLE &&
+        devModeViewModel != null &&
+        notificationState.isDevModeEffectivelyEnabled
 
     LaunchedEffect(appSettings.runWithoutWatch) {
         if (!appSettings.runWithoutWatch && selectedTab == AppTab.TIMELINE) {
@@ -327,7 +337,7 @@ private fun PebblePinManagerRoot(
                     icon = {
                         BadgedBox(
                             badge = {
-                                val count = devModeState.rawNotifications.size
+                                val count = devModeState?.rawNotifications?.size ?: 0
                                 if (count > 0) {
                                     Badge { Text(count.toString()) }
                                 }
@@ -383,11 +393,13 @@ private fun PebblePinManagerRoot(
             onOpenSettings = { showAppSettingsDialog = true },
             bottomBar = bottomNavigation,
         )
-        AppTab.DEV -> DevModeRoute(
-            viewModel = devModeViewModel,
-            onOpenNotificationAccessSettings = onOpenNotificationAccessSettings,
-            bottomBar = bottomNavigation,
-        )
+        AppTab.DEV -> if (isDevModeEnabled && devModeViewModel != null) {
+            DevModeRoute(
+                viewModel = devModeViewModel,
+                onOpenNotificationAccessSettings = onOpenNotificationAccessSettings,
+                bottomBar = bottomNavigation,
+            )
+        }
     }
 
     if (showAppSettingsDialog) {

@@ -9,8 +9,9 @@ PebblePinManager has **two components** that work together with the **Core Devic
 ## Option 1: Download Prebuilt Apps from GitHub Releases
 
 1. Open [GitHub Releases](https://github.com/gabrielhidasy/PebblePinManager/releases) and select the latest release.
-2. Download both assets:
-   - **`pebblepinmanager-android-<version>.apk`**
+2. Download the Android APK and companion watchapp:
+   - **`pebblepinmanager-android-<version>.apk`** — standard release build (without Developer Mode)
+   - **`pebblepinmanager-android-<version>-dev.apk`** *(optional)* — release build with **Developer Mode** (adds the opt-in **Dev** tab for inspecting raw notifications and interactively exploring regex rules; shares the same package ID and release signing key so you can switch between standard and `-dev` in place without losing pins or rules)
    - **`pebblepinmanager-watchapp-<version>.pbw`**
 3. Optionally verify integrity against `SHA256SUMS.txt`.
 
@@ -63,15 +64,17 @@ cd android
 ```
 
 #### Release APK Signing (Optional)
-To build a signed release APK (`xyz.hidasy.pebblepinmanager`) locally, point Gradle at your keystore via environment variables:
+To build signed release APKs (`xyz.hidasy.pebblepinmanager`) locally, point Gradle at your keystore via environment variables:
 ```bash
 export ANDROID_RELEASE_KEYSTORE_PATH=/path/to/release.keystore
 export ANDROID_RELEASE_KEYSTORE_PASSWORD=...
 export ANDROID_RELEASE_KEY_ALIAS=...
 export ANDROID_RELEASE_KEY_PASSWORD=...
 cd android
-./gradlew assembleRelease
-# Output: android/app/build/outputs/apk/release/app-release.apk
+./gradlew :app:assembleRelease :app:assembleReleaseDev
+# Outputs:
+#   android/app/build/outputs/apk/release/app-release.apk           (standard, without Developer Mode)
+#   android/app/build/outputs/apk/releaseDev/app-releaseDev.apk     (-dev, with Developer Mode)
 ```
 
 ### Companion Watchapp (`watchapp/`)

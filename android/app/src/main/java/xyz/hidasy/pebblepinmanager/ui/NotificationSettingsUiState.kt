@@ -1,5 +1,6 @@
 package xyz.hidasy.pebblepinmanager.ui
 
+import xyz.hidasy.pebblepinmanager.BuildConfig
 import xyz.hidasy.pebblepinmanager.data.SentPinRecord
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
@@ -13,6 +14,7 @@ import java.time.ZoneId
 data class NotificationSettingsUiState(
     val isNotificationAccessEnabled: Boolean = false,
     val isListenerConnected: Boolean = false,
+    val isDevModeAvailable: Boolean = BuildConfig.DEV_MODE_AVAILABLE,
     val settings: NotificationRuleSettings = NotificationRuleSettings(),
     val installedApps: List<InstalledAppInfo> = emptyList(),
     val isLoadingApps: Boolean = false,
@@ -41,6 +43,9 @@ data class NotificationSettingsUiState(
 ) {
     val autoPinCount: Int
         get() = autoPins.size
+
+    val isDevModeEffectivelyEnabled: Boolean
+        get() = isDevModeAvailable && settings.isDevModeEnabled
 
     val allowedCount: Int
         get() = settings.allowedPackages.size
