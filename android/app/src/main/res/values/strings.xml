@@ -6,5 +6,4 @@
     <string name="watch_handoff_notification_title">Open PebblePinManager</string>
     <string name="watch_handoff_notification_text">Requested from your Pebble watch. Tap to create or manage pins.</string>
     <string name="watch_handoff_notification_action">Open App</string>
-    <string name="notification_listener_label">PebblePinManager Notification Sync</string>
 </resources>

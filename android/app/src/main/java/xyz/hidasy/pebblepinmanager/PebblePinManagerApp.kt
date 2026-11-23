@@ -9,13 +9,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import xyz.hidasy.pebblepinmanager.data.DataStoreSentPinRepository
 import xyz.hidasy.pebblepinmanager.data.SentPinRepository
-import xyz.hidasy.pebblepinmanager.notifications.AndroidInstalledAppsProvider
-import xyz.hidasy.pebblepinmanager.notifications.AndroidNotificationAccessStatusChecker
-import xyz.hidasy.pebblepinmanager.notifications.DataStoreNotificationSettingsRepository
-import xyz.hidasy.pebblepinmanager.notifications.InstalledAppsProvider
-import xyz.hidasy.pebblepinmanager.notifications.NotificationPinPipeline
-import xyz.hidasy.pebblepinmanager.notifications.NotificationSettingsRepository
-import xyz.hidasy.pebblepinmanager.notifications.RuleBasedNotificationPinMapper
 import xyz.hidasy.pebblepinmanager.pebble.AndroidPhoneLaunchEnvironment
 import xyz.hidasy.pebblepinmanager.pebble.AppForegroundTracker
 import xyz.hidasy.pebblepinmanager.pebble.PebbleKit2PinSender
@@ -28,7 +21,7 @@ import xyz.hidasy.pebblepinmanager.pebble.WatchPinSyncManager
 
 /**
  * Lightweight manual dependency container shared across Activities, PebbleKit 2 listener services,
- * and background components (such as [xyz.hidasy.pebblepinmanager.notifications.PebbleNotificationListenerService]).
+ * and future background components (such as NotificationListenerService in Issue #7).
  */
 class AppContainer(private val application: Application) {
     val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -71,28 +64,6 @@ class AppContainer(private val application: Application) {
             repository = sentPinRepository,
             messenger = watchAppMessenger,
             onOpenPhoneUi = { phoneAppLauncher.openPhoneUi() },
-        )
-    }
-
-    val notificationSettingsRepository: NotificationSettingsRepository by lazy {
-        DataStoreNotificationSettingsRepository.create(application)
-    }
-
-    val notificationAccessStatusChecker: AndroidNotificationAccessStatusChecker by lazy {
-        AndroidNotificationAccessStatusChecker(application)
-    }
-
-    val installedAppsProvider: InstalledAppsProvider by lazy {
-        AndroidInstalledAppsProvider(application)
-    }
-
-    val notificationPinPipeline: NotificationPinPipeline by lazy {
-        NotificationPinPipeline(
-            mapper = RuleBasedNotificationPinMapper(
-                settingsProvider = { notificationSettingsRepository.getSettings() },
-            ),
-            pinSender = pinSender,
-            repository = sentPinRepository,
         )
     }
 
