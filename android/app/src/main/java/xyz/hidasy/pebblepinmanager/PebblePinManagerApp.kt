@@ -7,8 +7,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.map
+import xyz.hidasy.pebblepinmanager.data.AppSettingsRepository
+import xyz.hidasy.pebblepinmanager.data.DataStoreAppSettingsRepository
 import xyz.hidasy.pebblepinmanager.data.DataStoreSentPinRepository
+import xyz.hidasy.pebblepinmanager.data.DataStoreSimulatedTimelineRepository
 import xyz.hidasy.pebblepinmanager.data.SentPinRepository
+import xyz.hidasy.pebblepinmanager.data.SimulatedTimelineRepository
 import xyz.hidasy.pebblepinmanager.notifications.AndroidInstalledAppsProvider
 import xyz.hidasy.pebblepinmanager.notifications.AndroidNotificationAccessStatusChecker
 import xyz.hidasy.pebblepinmanager.notifications.DataStoreNotificationSettingsRepository
@@ -23,6 +28,9 @@ import xyz.hidasy.pebblepinmanager.pebble.AppForegroundTracker
 import xyz.hidasy.pebblepinmanager.pebble.PebbleKit2PinSender
 import xyz.hidasy.pebblepinmanager.pebble.PebbleKit2WatchAppMessenger
 import xyz.hidasy.pebblepinmanager.pebble.PhoneAppLauncher
+import xyz.hidasy.pebblepinmanager.pebble.SimulatedTimelinePinSender
+import xyz.hidasy.pebblepinmanager.pebble.SwitchableTimelinePinSender
+import xyz.hidasy.pebblepinmanager.pebble.SwitchableWatchAppMessenger
 import xyz.hidasy.pebblepinmanager.pebble.TimelinePinSender
 import xyz.hidasy.pebblepinmanager.pebble.WatchAppMessenger
 import xyz.hidasy.pebblepinmanager.pebble.WatchHandoffPromptPreferences
@@ -37,14 +45,37 @@ class AppContainer(private val application: Application) {
 
     val foregroundTracker: AppForegroundTracker = AppForegroundTracker()
 
+    val appSettingsRepository: AppSettingsRepository by lazy {
+        DataStoreAppSettingsRepository.create(application)
+    }
+
+    val simulatedTimelineRepository: SimulatedTimelineRepository by lazy {
+        DataStoreSimulatedTimelineRepository.create(application)
+    }
+
     private val sharedPebbleSender: PebbleSender by lazy {
         DefaultPebbleSender(application.applicationContext)
     }
 
-    val pinSender: TimelinePinSender by lazy {
+    private val realPinSender: TimelinePinSender by lazy {
         PebbleKit2PinSender.create(
             context = application,
             pebbleSender = sharedPebbleSender,
+        )
+    }
+
+    private val simulatedPinSender: TimelinePinSender by lazy {
+        SimulatedTimelinePinSender(
+            simulatedRepository = simulatedTimelineRepository,
+        )
+    }
+
+    val pinSender: TimelinePinSender by lazy {
+        SwitchableTimelinePinSender(
+            realSender = realPinSender,
+            simulatedSender = simulatedPinSender,
+            runWithoutWatchFlow = appSettingsRepository.observeSettings().map { it.runWithoutWatch },
+            isRunWithoutWatch = { appSettingsRepository.getSettings().runWithoutWatch },
         )
     }
 
@@ -53,7 +84,10 @@ class AppContainer(private val application: Application) {
     }
 
     val watchAppMessenger: WatchAppMessenger by lazy {
-        PebbleKit2WatchAppMessenger(pebbleSender = sharedPebbleSender)
+        SwitchableWatchAppMessenger(
+            realMessenger = PebbleKit2WatchAppMessenger(pebbleSender = sharedPebbleSender),
+            isRunWithoutWatch = { appSettingsRepository.getSettings().runWithoutWatch },
+        )
     }
 
     val phoneAppLauncher: PhoneAppLauncher by lazy {

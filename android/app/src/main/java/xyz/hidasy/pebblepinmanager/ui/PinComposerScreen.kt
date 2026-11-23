@@ -46,7 +46,10 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ViewTimeline
 import androidx.compose.material.icons.filled.Watch
+import androidx.compose.material.icons.filled.WatchOff
 import androidx.compose.material.icons.outlined.Notifications as NotificationsOutlined
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -120,6 +123,9 @@ fun PinComposerRoute(
     onRequestNotificationPermission: () -> Unit = {},
     onOpenNotificationSettings: () -> Unit = {},
     onOpenOverlaySettings: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    onSetRunWithoutWatch: ((Boolean) -> Unit)? = null,
+    onOpenSimulatedTimeline: (() -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -148,6 +154,9 @@ fun PinComposerRoute(
         onRequestNotificationPermission = onRequestNotificationPermission,
         onOpenNotificationSettings = onOpenNotificationSettings,
         onOpenOverlaySettings = onOpenOverlaySettings,
+        onOpenSettings = onOpenSettings,
+        onSetRunWithoutWatch = onSetRunWithoutWatch,
+        onOpenSimulatedTimeline = onOpenSimulatedTimeline,
         bottomBar = bottomBar,
         modifier = modifier,
     )
@@ -179,6 +188,9 @@ fun PinComposerScreen(
     onRequestNotificationPermission: () -> Unit = {},
     onOpenNotificationSettings: () -> Unit = {},
     onOpenOverlaySettings: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    onSetRunWithoutWatch: ((Boolean) -> Unit)? = null,
+    onOpenSimulatedTimeline: (() -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -235,6 +247,12 @@ fun PinComposerScreen(
                             )
                         }
                     }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "App settings",
+                        )
+                    }
                     IconButton(onClick = onRefreshStatus) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
@@ -271,6 +289,8 @@ fun PinComposerScreen(
                         PebbleStatusCard(
                             companionStatus = uiState.companionStatus,
                             connectedWatches = uiState.connectedWatches,
+                            onSetRunWithoutWatch = onSetRunWithoutWatch,
+                            onOpenSimulatedTimeline = onOpenSimulatedTimeline,
                         )
 
                         if (handoffCapabilities?.shouldShowPermissionBanner(isHandoffBannerDismissed) == true) {
@@ -333,6 +353,8 @@ fun PinComposerScreen(
                             PebbleStatusCard(
                                 companionStatus = uiState.companionStatus,
                                 connectedWatches = uiState.connectedWatches,
+                                onSetRunWithoutWatch = onSetRunWithoutWatch,
+                                onOpenSimulatedTimeline = onOpenSimulatedTimeline,
                             )
 
                             if (handoffCapabilities?.shouldShowPermissionBanner(isHandoffBannerDismissed) == true) {
@@ -721,7 +743,14 @@ private fun PinComposerCard(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(if (uiState.isEditing) "Updating on Pebble..." else "Sending to Pebble...")
+                    Text(
+                        when {
+                            uiState.isRunWithoutWatch && uiState.isEditing -> "Updating simulated pin..."
+                            uiState.isRunWithoutWatch -> "Simulating timeline pin..."
+                            uiState.isEditing -> "Updating on Pebble..."
+                            else -> "Sending to Pebble..."
+                        },
+                    )
                 } else {
                     Icon(
                         imageVector = if (uiState.isEditing) {
@@ -733,7 +762,14 @@ private fun PinComposerCard(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(if (uiState.isEditing) "Update Timeline Pin" else "Send to Pebble Timeline")
+                    Text(
+                        when {
+                            uiState.isRunWithoutWatch && uiState.isEditing -> "Update Simulated Pin"
+                            uiState.isRunWithoutWatch -> "Simulate Timeline Pin"
+                            uiState.isEditing -> "Update Timeline Pin"
+                            else -> "Send to Pebble Timeline"
+                        },
+                    )
                 }
             }
 
@@ -1031,19 +1067,25 @@ private fun BackgroundColorSelectorSection(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PebbleStatusCard(
     companionStatus: PebbleCompanionStatus?,
     connectedWatches: List<ConnectedPebbleWatch>,
+    onSetRunWithoutWatch: ((Boolean) -> Unit)? = null,
+    onOpenSimulatedTimeline: (() -> Unit)? = null,
 ) {
+    val isSimulated = companionStatus is PebbleCompanionStatus.SimulatedNoWatch
     val isAvailable = companionStatus is PebbleCompanionStatus.Available
     val containerColor = when {
+        isSimulated -> MaterialTheme.colorScheme.tertiaryContainer
         connectedWatches.isNotEmpty() -> MaterialTheme.colorScheme.secondaryContainer
         isAvailable -> MaterialTheme.colorScheme.surfaceVariant
         companionStatus is PebbleCompanionStatus.Unavailable -> MaterialTheme.colorScheme.errorContainer
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
     val contentColor = when {
+        isSimulated -> MaterialTheme.colorScheme.onTertiaryContainer
         connectedWatches.isNotEmpty() -> MaterialTheme.colorScheme.onSecondaryContainer
         isAvailable -> MaterialTheme.colorScheme.onSurfaceVariant
         companionStatus is PebbleCompanionStatus.Unavailable -> MaterialTheme.colorScheme.onErrorContainer
@@ -1057,54 +1099,106 @@ private fun PebbleStatusCard(
             contentColor = contentColor,
         ),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = if (companionStatus is PebbleCompanionStatus.Unavailable) {
-                    Icons.Default.ErrorOutline
-                } else {
-                    Icons.Default.Watch
-                },
-                contentDescription = null,
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                val headline = when {
-                    connectedWatches.isNotEmpty() -> "Watch connected"
-                    companionStatus is PebbleCompanionStatus.Available -> "Pebble companion app ready"
-                    companionStatus is PebbleCompanionStatus.Unavailable -> "Pebble companion app unavailable"
-                    else -> "Checking Pebble connection..."
-                }
-                Text(
-                    text = headline,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    imageVector = when {
+                        isSimulated -> Icons.Default.WatchOff
+                        companionStatus is PebbleCompanionStatus.Unavailable -> Icons.Default.ErrorOutline
+                        else -> Icons.Default.Watch
+                    },
+                    contentDescription = null,
                 )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    val headline = when {
+                        isSimulated -> "Running without a watch"
+                        connectedWatches.isNotEmpty() -> "Watch connected"
+                        companionStatus is PebbleCompanionStatus.Available -> "Pebble companion app ready"
+                        companionStatus is PebbleCompanionStatus.Unavailable -> "Pebble companion app unavailable"
+                        else -> "Checking Pebble connection..."
+                    }
+                    Text(
+                        text = headline,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
 
-                when {
-                    connectedWatches.isNotEmpty() -> {
-                        connectedWatches.forEach { watch ->
+                    when {
+                        isSimulated -> {
                             Text(
-                                text = "${watch.displayLabel} (FW ${watch.firmwareVersion})",
+                                text = "Simulated timeline mode is active. Manual pins and Auto-Pins are captured locally instead of sent to a watch.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        connectedWatches.isNotEmpty() -> {
+                            connectedWatches.forEach { watch ->
+                                Text(
+                                    text = "${watch.displayLabel} (FW ${watch.firmwareVersion})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        }
+                        companionStatus is PebbleCompanionStatus.Available -> {
+                            Text(
+                                text = "Using ${companionStatus.selectedPackage}. No watch reported connected yet; pins can still be queued.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        companionStatus is PebbleCompanionStatus.Unavailable -> {
+                            Text(
+                                text = companionStatus.reason,
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
                     }
-                    companionStatus is PebbleCompanionStatus.Available -> {
-                        Text(
-                            text = "Using ${companionStatus.selectedPackage}. No watch reported connected yet; pins can still be queued.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                }
+            }
+
+            if (isSimulated && (onOpenSimulatedTimeline != null || onSetRunWithoutWatch != null)) {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (onSetRunWithoutWatch != null) {
+                        TextButton(onClick = { onSetRunWithoutWatch(false) }) {
+                            Text("Disable")
+                        }
                     }
-                    companionStatus is PebbleCompanionStatus.Unavailable -> {
-                        Text(
-                            text = companionStatus.reason,
-                            style = MaterialTheme.typography.bodySmall,
+                    if (onOpenSimulatedTimeline != null) {
+                        OutlinedButton(onClick = onOpenSimulatedTimeline) {
+                            Icon(
+                                imageVector = Icons.Default.ViewTimeline,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Open Timeline")
+                        }
+                    }
+                }
+            } else if (companionStatus is PebbleCompanionStatus.Unavailable && onSetRunWithoutWatch != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    OutlinedButton(onClick = { onSetRunWithoutWatch(true) }) {
+                        Icon(
+                            imageVector = Icons.Default.WatchOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
                         )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Run without a watch")
                     }
                 }
             }

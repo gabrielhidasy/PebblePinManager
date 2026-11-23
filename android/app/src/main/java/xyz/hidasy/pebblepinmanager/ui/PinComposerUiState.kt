@@ -27,6 +27,7 @@ data class PinComposerUiState(
     val durationError: String? = null,
     val companionStatus: PebbleCompanionStatus? = null,
     val connectedWatches: List<ConnectedPebbleWatch> = emptyList(),
+    val isRunWithoutWatch: Boolean = false,
     val isSending: Boolean = false,
     val editingPin: SentPinRecord? = null,
     val deletingPinId: String? = null,

@@ -757,6 +757,63 @@ class PinComposerViewModelTest {
         assertNull(vm.uiState.value.editingPinId)
         assertEquals("", vm.uiState.value.title)
     }
+
+    @Test
+    fun `watchless mode updates companion status and shows simulated timeline feedback`() = runTest {
+        val modeFlow = MutableStateFlow(false)
+        val sender = object : TimelinePinSender {
+            override suspend fun sendPin(event: TimelineEvent): PinSendResult =
+                if (modeFlow.value) PinSendResult.Success(event.id) else PinSendResult.NoPebbleApp
+
+            override suspend fun deletePin(pinId: String): PinDeleteResult =
+                if (modeFlow.value) PinDeleteResult.Success(pinId) else PinDeleteResult.NoPebbleApp
+
+            override suspend fun getCompanionStatus(): PebbleCompanionStatus =
+                if (modeFlow.value) {
+                    PebbleCompanionStatus.SimulatedNoWatch
+                } else {
+                    PebbleCompanionStatus.Unavailable("No Pebble app")
+                }
+
+            override fun observeConnectedWatches(): Flow<List<ConnectedPebbleWatch>> =
+                MutableStateFlow(emptyList())
+        }
+        val repo = StubSentPinRepository()
+        val vm = PinComposerViewModel(
+            pinSender = sender,
+            repository = repo,
+            clock = fixedClock,
+            runWithoutWatchFlow = modeFlow,
+            pinIdGenerator = { "ppm-watchless" },
+        )
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.isRunWithoutWatch)
+        assertTrue(vm.uiState.value.companionStatus is PebbleCompanionStatus.Unavailable)
+
+        // Toggle watchless mode on
+        modeFlow.value = true
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.isRunWithoutWatch)
+        assertEquals(PebbleCompanionStatus.SimulatedNoWatch, vm.uiState.value.companionStatus)
+
+        vm.onTitleChange("Dev Pin")
+        vm.sendPin()
+        advanceUntilIdle()
+
+        val sendFeedback = vm.uiState.value.feedback as SendFeedback.Success
+        assertEquals("Pin added to Simulated Timeline", sendFeedback.headline)
+        assertTrue(sendFeedback.details.contains("Timeline tab"))
+        assertEquals(1, vm.uiState.value.sentPins.size)
+
+        vm.deletePin("ppm-watchless")
+        advanceUntilIdle()
+
+        val deleteFeedback = vm.uiState.value.feedback as SendFeedback.Success
+        assertEquals("Pin deleted from Simulated Timeline", deleteFeedback.headline)
+        assertTrue(vm.uiState.value.sentPins.isEmpty())
+    }
 }
 
 private class StubTimelinePinSender(

@@ -24,6 +24,7 @@ import xyz.hidasy.pebblepinmanager.notifications.NotificationRuleSettings
 import xyz.hidasy.pebblepinmanager.notifications.NotificationRuleValidator
 import xyz.hidasy.pebblepinmanager.notifications.NotificationSettingsRepository
 import xyz.hidasy.pebblepinmanager.notifications.RuleBasedNotificationPinMapper
+import xyz.hidasy.pebblepinmanager.pebble.PebbleCompanionStatus
 import xyz.hidasy.pebblepinmanager.pebble.PinDeleteResult
 import xyz.hidasy.pebblepinmanager.pebble.TimelinePinSender
 import java.time.Clock
@@ -596,13 +597,22 @@ class NotificationSettingsViewModel(
                 is PinDeleteResult.Success -> {
                     sentPinRepository.deletePinRecord(sanitizedId)
                     notifyPinsChanged()
+                    val isSimulated = pinSender.getCompanionStatus() is PebbleCompanionStatus.SimulatedNoWatch
                     _uiState.update {
                         it.copy(
                             deletingPinId = null,
                             pinActionFeedback = SendFeedback.Success(
                                 pinId = result.pinId,
-                                headline = "Auto-pin deleted from Pebble Timeline",
-                                details = "$displayName (${result.pinId}) was removed from your Pebble Timeline and local history.",
+                                headline = if (isSimulated) {
+                                    "Auto-pin deleted from Simulated Timeline"
+                                } else {
+                                    "Auto-pin deleted from Pebble Timeline"
+                                },
+                                details = if (isSimulated) {
+                                    "$displayName (${result.pinId}) was removed from the Simulated Timeline and local history."
+                                } else {
+                                    "$displayName (${result.pinId}) was removed from your Pebble Timeline and local history."
+                                },
                             ),
                         )
                     }

@@ -3,9 +3,12 @@ package xyz.hidasy.pebblepinmanager.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import xyz.hidasy.pebblepinmanager.data.SentPinRecord
@@ -35,6 +38,7 @@ class PinComposerViewModel(
     private val repository: SentPinRepository,
     private val clock: Clock = Clock.systemDefaultZone(),
     private val onPinsChanged: (suspend () -> Unit)? = null,
+    private val runWithoutWatchFlow: Flow<Boolean> = flowOf(false),
     private val pinIdGenerator: () -> String = { TimelineEvent.generatePinId() },
 ) : ViewModel() {
 
@@ -45,6 +49,16 @@ class PinComposerViewModel(
         refreshCompanionStatus()
         observeConnectedWatches()
         observeSentPins()
+        observeWatchMode()
+    }
+
+    private fun observeWatchMode() {
+        viewModelScope.launch {
+            runWithoutWatchFlow.distinctUntilChanged().collect { runWithoutWatch ->
+                _uiState.update { it.copy(isRunWithoutWatch = runWithoutWatch) }
+                refreshCompanionStatus()
+            }
+        }
     }
 
     private fun defaultZonedDateTime(): ZonedDateTime = ZonedDateTime.now(clock)
@@ -366,17 +380,24 @@ class PinComposerViewModel(
                     val durationSuffix = validatedEvent.durationMinutes
                         ?.let { " (${PinDurationFormatter.formatMinutes(it)})" }
                         .orEmpty()
-                    val watchSummary = _uiState.value.connectedWatches
-                        .takeIf { it.isNotEmpty() }
-                        ?.joinToString { it.displayLabel }
-                        ?.let { "Synced via Pebble app (connected: $it)." }
-                        ?: "Queued in the Pebble companion app. It will appear on your watch once connected."
+                    val isSimulated = updatedStatus is PebbleCompanionStatus.SimulatedNoWatch ||
+                        _uiState.value.isRunWithoutWatch
+                    val watchSummary = if (isSimulated) {
+                        "Captured locally in watchless mode — inspect it on the Timeline tab."
+                    } else {
+                        _uiState.value.connectedWatches
+                            .takeIf { it.isNotEmpty() }
+                            ?.joinToString { it.displayLabel }
+                            ?.let { "Synced via Pebble app (connected: $it)." }
+                            ?: "Queued in the Pebble companion app. It will appear on your watch once connected."
+                    }
 
                     val resetTime = if (isUpdate) defaultZonedDateTime() else null
-                    val headline = if (isUpdate) {
-                        "Pin updated on Pebble Timeline"
-                    } else {
-                        "Pin sent to Pebble Timeline"
+                    val headline = when {
+                        isSimulated && isUpdate -> "Pin updated in Simulated Timeline"
+                        isSimulated -> "Pin added to Simulated Timeline"
+                        isUpdate -> "Pin updated on Pebble Timeline"
+                        else -> "Pin sent to Pebble Timeline"
                     }
                     val details = if (isUpdate) {
                         "\"${validatedEvent.title}\" (${result.pinId}) updated for $localWhen$durationSuffix. $watchSummary"
@@ -491,13 +512,23 @@ class PinComposerViewModel(
                 is PinDeleteResult.Success -> {
                     repository.deletePinRecord(sanitizedId)
                     notifyPinsChanged()
+                    val isSimulated = updatedStatus is PebbleCompanionStatus.SimulatedNoWatch ||
+                        _uiState.value.isRunWithoutWatch
                     clearDeletedPinState(
                         deletedPinId = sanitizedId,
                         updatedStatus = updatedStatus,
                         feedback = SendFeedback.Success(
                             pinId = result.pinId,
-                            headline = "Pin deleted from Pebble Timeline",
-                            details = "$displayName (${result.pinId}) was removed from your Pebble Timeline and local history.",
+                            headline = if (isSimulated) {
+                                "Pin deleted from Simulated Timeline"
+                            } else {
+                                "Pin deleted from Pebble Timeline"
+                            },
+                            details = if (isSimulated) {
+                                "$displayName (${result.pinId}) was removed from the Simulated Timeline and local history."
+                            } else {
+                                "$displayName (${result.pinId}) was removed from your Pebble Timeline and local history."
+                            },
                         ),
                     )
                 }
@@ -650,6 +681,7 @@ class PinComposerViewModelFactory(
     private val pinSender: TimelinePinSender,
     private val repository: SentPinRepository,
     private val onPinsChanged: (suspend () -> Unit)? = null,
+    private val runWithoutWatchFlow: Flow<Boolean> = flowOf(false),
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -660,6 +692,7 @@ class PinComposerViewModelFactory(
             pinSender = pinSender,
             repository = repository,
             onPinsChanged = onPinsChanged,
+            runWithoutWatchFlow = runWithoutWatchFlow,
         ) as T
     }
 }

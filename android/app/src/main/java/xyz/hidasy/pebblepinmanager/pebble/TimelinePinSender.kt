@@ -59,6 +59,9 @@ sealed interface PebbleCompanionStatus {
     ) : PebbleCompanionStatus
 
     data class Unavailable(val reason: String) : PebbleCompanionStatus
+
+    /** Local watchless development mode: pins are captured on-device instead of sent to a watch. */
+    data object SimulatedNoWatch : PebbleCompanionStatus
 }
 
 data class ConnectedPebbleWatch(

@@ -87,6 +87,7 @@ fun NotificationSettingsRoute(
     viewModel: NotificationSettingsViewModel,
     onOpenNotificationAccessSettings: () -> Unit,
     onEditAutoPin: (SentPinRecord) -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -136,6 +137,7 @@ fun NotificationSettingsRoute(
         onDefaultBackgroundColorSelected = viewModel::onDefaultBackgroundColorSelected,
         onEditAutoPin = onEditAutoPin,
         onDeleteAutoPin = viewModel::deleteAutoPin,
+        onOpenSettings = onOpenSettings,
         bottomBar = bottomBar,
         modifier = modifier,
     )
@@ -180,6 +182,7 @@ fun NotificationSettingsScreen(
     onDefaultBackgroundColorSelected: (PinAccentColor?) -> Unit,
     onEditAutoPin: (SentPinRecord) -> Unit = {},
     onDeleteAutoPin: (String) -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -213,6 +216,12 @@ fun NotificationSettingsScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "App settings",
+                        )
+                    }
                     IconButton(onClick = onRefreshStatus) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
