@@ -109,7 +109,13 @@ class PebbleNotificationListenerService : NotificationListenerService() {
             ?.takeIf { it.isNotBlank() }
             ?: extras?.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString().orEmpty()
         val text = extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-        val bigText = extras?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+        val rawBigText = extras?.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+            ?.takeIf { it.isNotBlank() }
+        val inboxTextLines = extras?.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            ?.mapNotNull { line -> line?.toString()?.trim()?.takeIf { it.isNotEmpty() } }
+            ?.takeIf { it.isNotEmpty() }
+            ?.joinToString(separator = "\n")
+        val bigText = rawBigText ?: inboxTextLines
         val subText = extras?.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
 
         val rawWhen = notification?.`when` ?: 0L

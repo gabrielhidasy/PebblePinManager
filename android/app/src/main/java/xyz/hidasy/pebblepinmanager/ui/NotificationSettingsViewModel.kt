@@ -13,10 +13,17 @@ import kotlinx.coroutines.launch
 import xyz.hidasy.pebblepinmanager.data.SentPinRepository
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
+import xyz.hidasy.pebblepinmanager.notifications.AppNotificationRuleConfig
 import xyz.hidasy.pebblepinmanager.notifications.InstalledAppsProvider
 import xyz.hidasy.pebblepinmanager.notifications.NotificationAccessStatusChecker
+import xyz.hidasy.pebblepinmanager.notifications.NotificationPinCandidate
+import xyz.hidasy.pebblepinmanager.notifications.NotificationPinEvaluation
+import xyz.hidasy.pebblepinmanager.notifications.NotificationRegexRule
+import xyz.hidasy.pebblepinmanager.notifications.NotificationRulePresets
+import xyz.hidasy.pebblepinmanager.notifications.NotificationRuleSettings
 import xyz.hidasy.pebblepinmanager.notifications.NotificationRuleValidator
 import xyz.hidasy.pebblepinmanager.notifications.NotificationSettingsRepository
+import xyz.hidasy.pebblepinmanager.notifications.RuleBasedNotificationPinMapper
 import xyz.hidasy.pebblepinmanager.pebble.PinDeleteResult
 import xyz.hidasy.pebblepinmanager.pebble.TimelinePinSender
 import java.time.Clock
@@ -55,9 +62,16 @@ class NotificationSettingsViewModel(
                 _uiState.update { state ->
                     val shouldSyncInputs = !hasInitializedRuleInputs || !state.hasUnsavedRuleEdits
                     hasInitializedRuleInputs = true
+                    val validTesterPackage = state.ruleTesterPackage
+                        ?.takeIf { it in settings.allowedPackages }
                     state.copy(
                         settings = settings,
                         keywordFilterInput = if (shouldSyncInputs) settings.keywordFilter else state.keywordFilterInput,
+                        excludeKeywordFilterInput = if (shouldSyncInputs) {
+                            settings.excludeKeywordFilter
+                        } else {
+                            state.excludeKeywordFilterInput
+                        },
                         titleRegexInput = if (shouldSyncInputs) settings.titleRegexPattern else state.titleRegexInput,
                         descriptionRegexInput = if (shouldSyncInputs) {
                             settings.descriptionRegexPattern
@@ -65,8 +79,10 @@ class NotificationSettingsViewModel(
                             state.descriptionRegexInput
                         },
                         timeRegexInput = if (shouldSyncInputs) settings.timeRegexPattern else state.timeRegexInput,
+                        ruleTesterPackage = validTesterPackage,
                     )
                 }
+                refreshRuleTesterPreview()
             }
         }
     }
@@ -163,7 +179,21 @@ class NotificationSettingsViewModel(
     }
 
     fun onShowSelectedAppsOnlyChange(selectedOnly: Boolean) {
-        _uiState.update { it.copy(showSelectedAppsOnly = selectedOnly) }
+        _uiState.update {
+            it.copy(
+                showSelectedAppsOnly = selectedOnly,
+                showCustomRulesOnly = if (selectedOnly) false else it.showCustomRulesOnly,
+            )
+        }
+    }
+
+    fun onShowCustomRulesOnlyChange(customOnly: Boolean) {
+        _uiState.update {
+            it.copy(
+                showCustomRulesOnly = customOnly,
+                showSelectedAppsOnly = if (customOnly) false else it.showSelectedAppsOnly,
+            )
+        }
     }
 
     fun onManualPackageInputChange(value: String) {
@@ -199,6 +229,15 @@ class NotificationSettingsViewModel(
         _uiState.update {
             it.copy(
                 keywordFilterInput = value,
+                rulesSavedMessage = null,
+            )
+        }
+    }
+
+    fun onExcludeKeywordFilterInputChange(value: String) {
+        _uiState.update {
+            it.copy(
+                excludeKeywordFilterInput = value,
                 rulesSavedMessage = null,
             )
         }
@@ -253,6 +292,7 @@ class NotificationSettingsViewModel(
         }
 
         val keywords = current.keywordFilterInput.trim()
+        val excludeKeywords = current.excludeKeywordFilterInput.trim()
         val titleRegex = current.titleRegexInput.trim()
         val descRegex = current.descriptionRegexInput.trim()
         val timeRegex = current.timeRegexInput.trim()
@@ -261,6 +301,7 @@ class NotificationSettingsViewModel(
             settingsRepository.updateSettings { settings ->
                 settings.copy(
                     keywordFilter = keywords,
+                    excludeKeywordFilter = excludeKeywords,
                     titleRegexPattern = titleRegex,
                     descriptionRegexPattern = descRegex,
                     timeRegexPattern = timeRegex,
@@ -269,6 +310,7 @@ class NotificationSettingsViewModel(
             _uiState.update {
                 it.copy(
                     keywordFilterInput = keywords,
+                    excludeKeywordFilterInput = excludeKeywords,
                     titleRegexInput = titleRegex,
                     descriptionRegexInput = descRegex,
                     timeRegexInput = timeRegex,
@@ -278,6 +320,232 @@ class NotificationSettingsViewModel(
                     rulesSavedMessage = "Notification parsing rules saved locally.",
                 )
             }
+        }
+    }
+
+    fun onRequireGlobalRegexRuleMatchChange(required: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.updateSettings { it.copy(requireGlobalRegexRuleMatch = required) }
+        }
+    }
+
+    fun onUpsertGlobalRegexRule(rule: NotificationRegexRule) {
+        val normalized = rule.normalized()
+        if (!NotificationRuleValidator.validateRule(normalized).isValid) return
+        viewModelScope.launch {
+            settingsRepository.updateSettings { current ->
+                current.copy(globalRegexRules = upsertRuleInList(current.globalRegexRules, normalized))
+            }
+        }
+    }
+
+    fun onDeleteGlobalRegexRule(ruleId: String) {
+        viewModelScope.launch {
+            settingsRepository.updateSettings { current ->
+                current.copy(globalRegexRules = current.globalRegexRules.filterNot { it.id == ruleId })
+            }
+        }
+    }
+
+    fun onToggleGlobalRegexRuleEnabled(ruleId: String, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.updateSettings { current ->
+                current.copy(
+                    globalRegexRules = current.globalRegexRules.map { rule ->
+                        if (rule.id == ruleId) rule.copy(enabled = enabled) else rule
+                    },
+                )
+            }
+        }
+    }
+
+    fun onMoveGlobalRegexRule(ruleId: String, direction: Int) {
+        viewModelScope.launch {
+            settingsRepository.updateSettings { current ->
+                current.copy(globalRegexRules = moveRuleInList(current.globalRegexRules, ruleId, direction))
+            }
+        }
+    }
+
+    fun onSaveAppRuleConfig(config: AppNotificationRuleConfig) {
+        val normalized = config.normalized()
+        if (normalized.packageName.isEmpty()) return
+        if (normalized.regexRules.any { !NotificationRuleValidator.validateRule(it).isValid }) return
+
+        viewModelScope.launch {
+            settingsRepository.updateSettings { current ->
+                val updatedMap = if (normalized.hasCustomizations()) {
+                    current.appRules + (normalized.packageName to normalized)
+                } else {
+                    current.appRules - normalized.packageName
+                }
+                current.copy(
+                    allowedPackages = current.allowedPackages + normalized.packageName,
+                    appRules = updatedMap,
+                )
+            }
+        }
+    }
+
+    fun onResetAppRuleConfig(packageName: String) {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) return
+        viewModelScope.launch {
+            settingsRepository.updateSettings { current ->
+                current.copy(appRules = current.appRules - pkg)
+            }
+        }
+    }
+
+    fun onUpsertAppRegexRule(packageName: String, rule: NotificationRegexRule) {
+        val pkg = packageName.trim()
+        val normalizedRule = rule.normalized()
+        if (pkg.isEmpty()) return
+        if (!NotificationRuleValidator.validateRule(normalizedRule).isValid) return
+
+        viewModelScope.launch {
+            settingsRepository.updateSettings { current ->
+                val existing = current.appRules[pkg] ?: AppNotificationRuleConfig(packageName = pkg)
+                val updatedConfig = existing.copy(
+                    regexRules = upsertRuleInList(existing.regexRules, normalizedRule),
+                )
+                current.copy(
+                    allowedPackages = current.allowedPackages + pkg,
+                    appRules = current.appRules + (pkg to updatedConfig),
+                )
+            }
+        }
+    }
+
+    fun onDeleteAppRegexRule(packageName: String, ruleId: String) {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) return
+        viewModelScope.launch {
+            settingsRepository.updateSettings { current ->
+                val existing = current.appRules[pkg] ?: return@updateSettings current
+                val updatedConfig = existing.copy(
+                    regexRules = existing.regexRules.filterNot { it.id == ruleId },
+                )
+                val updatedMap = if (updatedConfig.hasCustomizations()) {
+                    current.appRules + (pkg to updatedConfig)
+                } else {
+                    current.appRules - pkg
+                }
+                current.copy(appRules = updatedMap)
+            }
+        }
+    }
+
+    fun onToggleAppRegexRuleEnabled(packageName: String, ruleId: String, enabled: Boolean) {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) return
+        viewModelScope.launch {
+            settingsRepository.updateSettings { current ->
+                val existing = current.appRules[pkg] ?: return@updateSettings current
+                val updatedConfig = existing.copy(
+                    regexRules = existing.regexRules.map { rule ->
+                        if (rule.id == ruleId) rule.copy(enabled = enabled) else rule
+                    },
+                )
+                current.copy(appRules = current.appRules + (pkg to updatedConfig))
+            }
+        }
+    }
+
+    fun onMoveAppRegexRule(packageName: String, ruleId: String, direction: Int) {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) return
+        viewModelScope.launch {
+            settingsRepository.updateSettings { current ->
+                val existing = current.appRules[pkg] ?: return@updateSettings current
+                val updatedConfig = existing.copy(
+                    regexRules = moveRuleInList(existing.regexRules, ruleId, direction),
+                )
+                current.copy(appRules = current.appRules + (pkg to updatedConfig))
+            }
+        }
+    }
+
+    fun onAddSubjectAsTitlePreset(packageName: String) {
+        val pkg = packageName.trim()
+        if (pkg.isEmpty()) return
+        onUpsertAppRegexRule(
+            packageName = pkg,
+            rule = NotificationRulePresets.subjectAsTitleRule(),
+        )
+    }
+
+    fun onRuleTesterPackageChange(packageName: String?) {
+        _uiState.update { it.copy(ruleTesterPackage = packageName?.trim()?.takeIf { p -> p.isNotEmpty() }) }
+        refreshRuleTesterPreview()
+    }
+
+    fun onRuleTesterTitleChange(title: String) {
+        _uiState.update { it.copy(ruleTesterTitle = title) }
+        refreshRuleTesterPreview()
+    }
+
+    fun onRuleTesterBodyChange(body: String) {
+        _uiState.update { it.copy(ruleTesterBody = body) }
+        refreshRuleTesterPreview()
+    }
+
+    /**
+     * Evaluates a sample notification synchronously against a provided [settingsOverride]
+     * (useful inside the Per-App Rules editor before saving, as well as the main tester card).
+     */
+    suspend fun evaluateSampleNotification(
+        packageName: String?,
+        title: String,
+        body: String,
+        settingsOverride: NotificationRuleSettings? = null,
+    ): NotificationPinEvaluation? {
+        if (title.isBlank() && body.isBlank()) return null
+        val baseSettings = settingsOverride ?: _uiState.value.settings
+        val targetPackage = packageName?.trim()?.takeIf { it.isNotEmpty() } ?: PREVIEW_GLOBAL_PACKAGE
+        val effectiveSettings = if (packageName.isNullOrBlank()) {
+            baseSettings.copy(
+                allowedPackages = baseSettings.allowedPackages + targetPackage,
+                appRules = baseSettings.appRules - targetPackage,
+            )
+        } else {
+            baseSettings.copy(
+                allowedPackages = baseSettings.allowedPackages + targetPackage,
+            )
+        }
+        val nowMillis = clock.millis()
+        val mapper = RuleBasedNotificationPinMapper(
+            settings = effectiveSettings,
+            clockMillis = { nowMillis },
+            zoneIdProvider = { clock.zone },
+            pinIdGenerator = { "ppm-preview" },
+        )
+        val candidate = NotificationPinCandidate(
+            sourcePackage = targetPackage,
+            notificationKey = "preview|$targetPackage|0",
+            title = title,
+            text = body.takeIf { it.isNotBlank() },
+            bigText = body.takeIf { it.isNotBlank() },
+            eventTimeMillis = nowMillis,
+            appLabel = _uiState.value.displayNameForPackage(targetPackage),
+        )
+        return mapper.evaluate(candidate)
+    }
+
+    private fun refreshRuleTesterPreview() {
+        val snapshot = _uiState.value
+        if (snapshot.ruleTesterTitle.isBlank() && snapshot.ruleTesterBody.isBlank()) {
+            _uiState.update { it.copy(ruleTesterEvaluation = null) }
+            return
+        }
+        viewModelScope.launch {
+            val evaluation = evaluateSampleNotification(
+                packageName = snapshot.ruleTesterPackage,
+                title = snapshot.ruleTesterTitle,
+                body = snapshot.ruleTesterBody,
+                settingsOverride = snapshot.settings,
+            )
+            _uiState.update { it.copy(ruleTesterEvaluation = evaluation) }
         }
     }
 
@@ -400,12 +668,43 @@ class NotificationSettingsViewModel(
         }
     }
 
+    private fun upsertRuleInList(
+        rules: List<NotificationRegexRule>,
+        rule: NotificationRegexRule,
+    ): List<NotificationRegexRule> {
+        val index = rules.indexOfFirst { it.id == rule.id }
+        return if (index >= 0) {
+            rules.toMutableList().apply { set(index, rule) }
+        } else {
+            rules + rule
+        }
+    }
+
+    private fun moveRuleInList(
+        rules: List<NotificationRegexRule>,
+        ruleId: String,
+        direction: Int,
+    ): List<NotificationRegexRule> {
+        val index = rules.indexOfFirst { it.id == ruleId }
+        if (index == -1) return rules
+        val targetIndex = index + direction
+        if (targetIndex !in rules.indices) return rules
+        return rules.toMutableList().apply {
+            val item = removeAt(index)
+            add(targetIndex, item)
+        }
+    }
+
     private fun notifyPinsChanged() {
         onPinsChanged?.let { callback ->
             viewModelScope.launch {
                 runCatching { callback() }
             }
         }
+    }
+
+    companion object {
+        private const val PREVIEW_GLOBAL_PACKAGE = "com.example.preview"
     }
 }
 

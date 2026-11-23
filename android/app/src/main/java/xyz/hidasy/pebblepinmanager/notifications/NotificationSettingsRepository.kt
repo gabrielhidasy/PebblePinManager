@@ -73,9 +73,21 @@ class DataStoreNotificationSettingsRepository(
     private fun NotificationRuleSettings.normalized(): NotificationRuleSettings = copy(
         allowedPackages = allowedPackages.map { it.trim() }.filter { it.isNotEmpty() }.toSet(),
         keywordFilter = keywordFilter.trim(),
+        excludeKeywordFilter = excludeKeywordFilter.trim(),
         titleRegexPattern = titleRegexPattern.trim(),
         descriptionRegexPattern = descriptionRegexPattern.trim(),
         timeRegexPattern = timeRegexPattern.trim(),
+        globalRegexRules = globalRegexRules.map { it.normalized() },
+        appRules = appRules.entries
+            .mapNotNull { (rawKey, config) ->
+                val pkg = rawKey.trim().ifEmpty { config.packageName.trim() }
+                if (pkg.isEmpty()) {
+                    null
+                } else {
+                    pkg to config.copy(packageName = pkg).normalized()
+                }
+            }
+            .toMap(),
         defaultBackgroundColor = defaultBackgroundColor?.trim()?.takeIf { it.isNotEmpty() },
     )
 

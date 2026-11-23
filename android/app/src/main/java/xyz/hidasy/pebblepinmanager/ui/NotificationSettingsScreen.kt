@@ -1,13 +1,13 @@
 package xyz.hidasy.pebblepinmanager.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -36,6 +35,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -61,15 +61,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,7 +79,8 @@ import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinDurationFormatter
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
 import xyz.hidasy.pebblepinmanager.domain.TimelineTimestampFormatter
-import xyz.hidasy.pebblepinmanager.notifications.InstalledAppInfo
+import xyz.hidasy.pebblepinmanager.notifications.AppNotificationRuleConfig
+import xyz.hidasy.pebblepinmanager.notifications.NotificationRegexRule
 
 @Composable
 fun NotificationSettingsRoute(
@@ -114,13 +112,25 @@ fun NotificationSettingsRoute(
         onClearAllowedPackages = viewModel::onClearAllowedPackages,
         onAppSearchQueryChange = viewModel::onAppSearchQueryChange,
         onShowSelectedAppsOnlyChange = viewModel::onShowSelectedAppsOnlyChange,
+        onShowCustomRulesOnlyChange = viewModel::onShowCustomRulesOnlyChange,
         onManualPackageInputChange = viewModel::onManualPackageInputChange,
         onAddManualPackage = viewModel::onAddManualPackage,
         onKeywordFilterInputChange = viewModel::onKeywordFilterInputChange,
+        onExcludeKeywordFilterInputChange = viewModel::onExcludeKeywordFilterInputChange,
         onTitleRegexInputChange = viewModel::onTitleRegexInputChange,
         onDescriptionRegexInputChange = viewModel::onDescriptionRegexInputChange,
         onTimeRegexInputChange = viewModel::onTimeRegexInputChange,
         onSaveParsingRules = viewModel::onSaveParsingRules,
+        onRequireGlobalRegexRuleMatchChange = viewModel::onRequireGlobalRegexRuleMatchChange,
+        onUpsertGlobalRegexRule = viewModel::onUpsertGlobalRegexRule,
+        onDeleteGlobalRegexRule = viewModel::onDeleteGlobalRegexRule,
+        onToggleGlobalRegexRuleEnabled = viewModel::onToggleGlobalRegexRuleEnabled,
+        onMoveGlobalRegexRule = viewModel::onMoveGlobalRegexRule,
+        onSaveAppRuleConfig = viewModel::onSaveAppRuleConfig,
+        onResetAppRuleConfig = viewModel::onResetAppRuleConfig,
+        onRuleTesterPackageChange = viewModel::onRuleTesterPackageChange,
+        onRuleTesterTitleChange = viewModel::onRuleTesterTitleChange,
+        onRuleTesterBodyChange = viewModel::onRuleTesterBodyChange,
         onDefaultIconSelected = viewModel::onDefaultIconSelected,
         onDefaultBackgroundColorSelected = viewModel::onDefaultBackgroundColorSelected,
         onEditAutoPin = onEditAutoPin,
@@ -145,13 +155,25 @@ fun NotificationSettingsScreen(
     onClearAllowedPackages: () -> Unit,
     onAppSearchQueryChange: (String) -> Unit,
     onShowSelectedAppsOnlyChange: (Boolean) -> Unit,
+    onShowCustomRulesOnlyChange: (Boolean) -> Unit = {},
     onManualPackageInputChange: (String) -> Unit,
     onAddManualPackage: () -> Unit,
     onKeywordFilterInputChange: (String) -> Unit,
+    onExcludeKeywordFilterInputChange: (String) -> Unit = {},
     onTitleRegexInputChange: (String) -> Unit,
     onDescriptionRegexInputChange: (String) -> Unit,
     onTimeRegexInputChange: (String) -> Unit,
     onSaveParsingRules: () -> Unit,
+    onRequireGlobalRegexRuleMatchChange: (Boolean) -> Unit = {},
+    onUpsertGlobalRegexRule: (NotificationRegexRule) -> Unit = {},
+    onDeleteGlobalRegexRule: (String) -> Unit = {},
+    onToggleGlobalRegexRuleEnabled: (String, Boolean) -> Unit = { _, _ -> },
+    onMoveGlobalRegexRule: (String, Int) -> Unit = { _, _ -> },
+    onSaveAppRuleConfig: (AppNotificationRuleConfig) -> Unit = {},
+    onResetAppRuleConfig: (String) -> Unit = {},
+    onRuleTesterPackageChange: (String?) -> Unit = {},
+    onRuleTesterTitleChange: (String) -> Unit = {},
+    onRuleTesterBodyChange: (String) -> Unit = {},
     onDefaultIconSelected: (PinIcon) -> Unit,
     onDefaultBackgroundColorSelected: (PinAccentColor?) -> Unit,
     onEditAutoPin: (SentPinRecord) -> Unit = {},
@@ -161,6 +183,10 @@ fun NotificationSettingsScreen(
 ) {
     val scrollState = rememberScrollState()
     var pinPendingDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingAppRulesPackage by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingGlobalRule by remember { mutableStateOf<NotificationRegexRule?>(null) }
+    var isAddingGlobalRule by remember { mutableStateOf(false) }
+
     val pinPendingDelete = pinPendingDeleteId?.let { pendingId ->
         uiState.autoPins.firstOrNull { it.id == pendingId }
     }
@@ -208,6 +234,7 @@ fun NotificationSettingsScreen(
                 isAccessEnabled = uiState.isNotificationAccessEnabled,
                 isListenerConnected = uiState.isListenerConnected,
                 allowedCount = uiState.allowedCount,
+                configuredAppRulesCount = uiState.configuredAppRulesCount,
                 autoPinCount = uiState.autoPinCount,
                 onOpenSettings = onOpenNotificationAccessSettings,
             )
@@ -233,43 +260,80 @@ fun NotificationSettingsScreen(
             )
 
             AllowedAppsAllowlistCard(
-                allowedPackages = uiState.settings.allowedPackages,
-                filteredApps = uiState.filteredInstalledApps,
-                unlistedAllowedPackages = uiState.unlistedAllowedPackages,
-                isLoadingApps = uiState.isLoadingApps,
-                searchQuery = uiState.appSearchQuery,
-                showSelectedOnly = uiState.showSelectedAppsOnly,
-                manualPackageInput = uiState.manualPackageInput,
-                manualPackageError = uiState.manualPackageError,
+                uiState = uiState,
                 onSearchQueryChange = onAppSearchQueryChange,
                 onShowSelectedOnlyChange = onShowSelectedAppsOnlyChange,
+                onShowCustomRulesOnlyChange = onShowCustomRulesOnlyChange,
                 onTogglePackageAllowed = onTogglePackageAllowed,
+                onOpenAppRules = { pkg -> editingAppRulesPackage = pkg },
                 onClearAllowedPackages = onClearAllowedPackages,
                 onManualPackageInputChange = onManualPackageInputChange,
                 onAddManualPackage = onAddManualPackage,
             )
 
             ParsingAndAppearanceCard(
-                keywordFilterInput = uiState.keywordFilterInput,
-                titleRegexInput = uiState.titleRegexInput,
-                titleRegexError = uiState.titleRegexError,
-                descriptionRegexInput = uiState.descriptionRegexInput,
-                descriptionRegexError = uiState.descriptionRegexError,
-                timeRegexInput = uiState.timeRegexInput,
-                timeRegexError = uiState.timeRegexError,
-                hasUnsavedEdits = uiState.hasUnsavedRuleEdits,
-                rulesSavedMessage = uiState.rulesSavedMessage,
-                selectedIcon = uiState.selectedDefaultIcon,
-                selectedBackgroundColor = uiState.selectedDefaultBackgroundColor,
+                uiState = uiState,
                 onKeywordFilterInputChange = onKeywordFilterInputChange,
+                onExcludeKeywordFilterInputChange = onExcludeKeywordFilterInputChange,
                 onTitleRegexInputChange = onTitleRegexInputChange,
                 onDescriptionRegexInputChange = onDescriptionRegexInputChange,
                 onTimeRegexInputChange = onTimeRegexInputChange,
                 onSaveParsingRules = onSaveParsingRules,
+                onRequireGlobalRegexRuleMatchChange = onRequireGlobalRegexRuleMatchChange,
+                onAddGlobalRegexRule = {
+                    isAddingGlobalRule = true
+                    editingGlobalRule = NotificationRegexRule()
+                },
+                onEditGlobalRegexRule = { rule ->
+                    isAddingGlobalRule = false
+                    editingGlobalRule = rule
+                },
+                onDeleteGlobalRegexRule = onDeleteGlobalRegexRule,
+                onToggleGlobalRegexRuleEnabled = onToggleGlobalRegexRuleEnabled,
+                onMoveGlobalRegexRule = onMoveGlobalRegexRule,
                 onDefaultIconSelected = onDefaultIconSelected,
                 onDefaultBackgroundColorSelected = onDefaultBackgroundColorSelected,
             )
+
+            RuleTesterCard(
+                uiState = uiState,
+                onPackageSelected = onRuleTesterPackageChange,
+                onTitleChange = onRuleTesterTitleChange,
+                onBodyChange = onRuleTesterBodyChange,
+            )
         }
+    }
+
+    editingAppRulesPackage?.let { pkg ->
+        AppRulesEditorDialog(
+            packageName = pkg,
+            appName = uiState.displayNameForPackage(pkg),
+            initialConfig = uiState.appRuleConfigOrDefault(pkg),
+            globalSettings = uiState.settings,
+            zoneId = uiState.zoneId,
+            onSave = { config ->
+                onSaveAppRuleConfig(config)
+                editingAppRulesPackage = null
+            },
+            onResetToGlobal = {
+                onResetAppRuleConfig(pkg)
+                editingAppRulesPackage = null
+            },
+            onDismiss = { editingAppRulesPackage = null },
+        )
+    }
+
+    editingGlobalRule?.let { rule ->
+        RegexRuleEditorDialog(
+            initialRule = rule,
+            isNew = isAddingGlobalRule,
+            scopeLabel = "Global Defaults",
+            onSave = { saved ->
+                onUpsertGlobalRegexRule(saved)
+                editingGlobalRule = null
+            },
+            onDismiss = { editingGlobalRule = null },
+        )
     }
 
     pinPendingDelete?.let { pending ->
@@ -486,6 +550,7 @@ private fun NotificationAccessOnboardingCard(
     isAccessEnabled: Boolean,
     isListenerConnected: Boolean,
     allowedCount: Int,
+    configuredAppRulesCount: Int,
     autoPinCount: Int,
     onOpenSettings: () -> Unit,
 ) {
@@ -542,7 +607,12 @@ private fun NotificationAccessOnboardingCard(
                             } else {
                                 "System listener ready."
                             }
-                            "$connectionNote $allowedCount allowed app(s) selected • $autoPinCount auto-created pin(s) in history."
+                            val customNote = if (configuredAppRulesCount > 0) {
+                                " • $configuredAppRulesCount custom app rule set(s)"
+                            } else {
+                                ""
+                            }
+                            "$connectionNote $allowedCount allowed app(s)$customNote • $autoPinCount auto-created pin(s) in history."
                         } else {
                             "Enable Notification Access in Android Settings to turn notifications from selected apps into Pebble Timeline pins. Manual pin creation always works without this permission."
                         },
@@ -696,21 +766,20 @@ private fun SettingSwitchRow(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AllowedAppsAllowlistCard(
-    allowedPackages: Set<String>,
-    filteredApps: List<InstalledAppInfo>,
-    unlistedAllowedPackages: List<String>,
-    isLoadingApps: Boolean,
-    searchQuery: String,
-    showSelectedOnly: Boolean,
-    manualPackageInput: String,
-    manualPackageError: String?,
+    uiState: NotificationSettingsUiState,
     onSearchQueryChange: (String) -> Unit,
     onShowSelectedOnlyChange: (Boolean) -> Unit,
+    onShowCustomRulesOnlyChange: (Boolean) -> Unit,
     onTogglePackageAllowed: (String) -> Unit,
+    onOpenAppRules: (String) -> Unit,
     onClearAllowedPackages: () -> Unit,
     onManualPackageInputChange: (String) -> Unit,
     onAddManualPackage: () -> Unit,
 ) {
+    val allowedPackages = uiState.settings.allowedPackages
+    val filteredApps = uiState.filteredInstalledApps
+    val unlistedAllowedPackages = uiState.unlistedAllowedPackages
+
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -728,7 +797,7 @@ private fun AllowedAppsAllowlistCard(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = "Opt-in only: notifications from unselected apps are ignored.",
+                        text = "Quick setup: check apps to allowlist with global defaults, or tap Rules for per-app regexes.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -752,31 +821,55 @@ private fun AllowedAppsAllowlistCard(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         unlistedAllowedPackages.forEach { pkg ->
-                            InputChip(
-                                selected = true,
-                                onClick = { onTogglePackageAllowed(pkg) },
-                                label = { Text(pkg) },
-                                trailingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Remove $pkg",
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                },
-                            )
+                            val badge = uiState.appRuleBadgeLabel(pkg)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                InputChip(
+                                    selected = true,
+                                    onClick = { onOpenAppRules(pkg) },
+                                    label = {
+                                        Text(
+                                            if (badge != null) "$pkg ($badge)" else pkg,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Tune,
+                                            contentDescription = "Edit rules for $pkg",
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        IconButton(
+                                            onClick = { onTogglePackageAllowed(pkg) },
+                                            modifier = Modifier.size(18.dp),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remove $pkg",
+                                                modifier = Modifier.size(14.dp),
+                                            )
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }
             }
 
             OutlinedTextField(
-                value = searchQuery,
+                value = uiState.appSearchQuery,
                 onValueChange = onSearchQueryChange,
                 label = { Text("Search installed apps") },
-                placeholder = { Text("Name or package (e.g. Calendar, Delivery)") },
+                placeholder = { Text("Name or package (e.g. Gmail, Calendar)") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
+                    if (uiState.appSearchQuery.isNotEmpty()) {
                         IconButton(onClick = { onSearchQueryChange("") }) {
                             Icon(Icons.Default.Close, contentDescription = "Clear search")
                         }
@@ -786,21 +879,35 @@ private fun AllowedAppsAllowlistCard(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = !showSelectedOnly,
-                    onClick = { onShowSelectedOnlyChange(false) },
-                    label = { Text("All Apps") },
-                )
-                FilterChip(
-                    selected = showSelectedOnly,
-                    onClick = { onShowSelectedOnlyChange(true) },
-                    label = { Text("Selected (${allowedPackages.size})") },
-                )
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item(key = "filter-all") {
+                    FilterChip(
+                        selected = !uiState.showSelectedAppsOnly && !uiState.showCustomRulesOnly,
+                        onClick = {
+                            onShowSelectedOnlyChange(false)
+                            onShowCustomRulesOnlyChange(false)
+                        },
+                        label = { Text("All Apps") },
+                    )
+                }
+                item(key = "filter-selected") {
+                    FilterChip(
+                        selected = uiState.showSelectedAppsOnly,
+                        onClick = { onShowSelectedOnlyChange(!uiState.showSelectedAppsOnly) },
+                        label = { Text("Selected (${allowedPackages.size})") },
+                    )
+                }
+                item(key = "filter-custom") {
+                    FilterChip(
+                        selected = uiState.showCustomRulesOnly,
+                        onClick = { onShowCustomRulesOnlyChange(!uiState.showCustomRulesOnly) },
+                        label = { Text("Custom Rules (${uiState.configuredAppRulesCount})") },
+                    )
+                }
             }
 
             when {
-                isLoadingApps -> {
+                uiState.isLoadingApps -> {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -812,10 +919,10 @@ private fun AllowedAppsAllowlistCard(
                 }
                 filteredApps.isEmpty() -> {
                     Text(
-                        text = if (showSelectedOnly) {
-                            "No installed launcher apps selected yet."
-                        } else {
-                            "No matching apps found."
+                        text = when {
+                            uiState.showCustomRulesOnly -> "No apps have custom rules yet. Select an app and tap Rules to add per-app regexes."
+                            uiState.showSelectedAppsOnly -> "No installed launcher apps selected yet."
+                            else -> "No matching apps found."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -826,18 +933,19 @@ private fun AllowedAppsAllowlistCard(
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 280.dp),
+                            .heightIn(max = 300.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         items(filteredApps, key = { it.packageName }) { app ->
                             val checked = app.packageName in allowedPackages
+                            val badge = uiState.appRuleBadgeLabel(app.packageName)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { onTogglePackageAllowed(app.packageName) }
                                     .padding(vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Checkbox(
                                     checked = checked,
@@ -852,12 +960,37 @@ private fun AllowedAppsAllowlistCard(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        text = app.packageName,
+                                        text = if (badge != null) {
+                                            "${app.packageName} • $badge"
+                                        } else {
+                                            app.packageName
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (badge != null) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
+                                }
+                                if (checked || badge != null) {
+                                    OutlinedButton(
+                                        onClick = { onOpenAppRules(app.packageName) },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Tune,
+                                            contentDescription = "Configure rules for ${app.appName}",
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            text = if (badge != null) "Edit" else "Rules",
+                                            style = MaterialTheme.typography.labelMedium,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -873,12 +1006,12 @@ private fun AllowedAppsAllowlistCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedTextField(
-                    value = manualPackageInput,
+                    value = uiState.manualPackageInput,
                     onValueChange = onManualPackageInputChange,
                     label = { Text("Add package manually") },
-                    placeholder = { Text("com.example.flights") },
-                    isError = manualPackageError != null,
-                    supportingText = manualPackageError?.let { err -> { Text(err) } },
+                    placeholder = { Text("com.google.android.gm") },
+                    isError = uiState.manualPackageError != null,
+                    supportingText = uiState.manualPackageError?.let { err -> { Text(err) } },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
@@ -901,40 +1034,46 @@ private fun AllowedAppsAllowlistCard(
 
 @Composable
 private fun ParsingAndAppearanceCard(
-    keywordFilterInput: String,
-    titleRegexInput: String,
-    titleRegexError: String?,
-    descriptionRegexInput: String,
-    descriptionRegexError: String?,
-    timeRegexInput: String,
-    timeRegexError: String?,
-    hasUnsavedEdits: Boolean,
-    rulesSavedMessage: String?,
-    selectedIcon: PinIcon,
-    selectedBackgroundColor: PinAccentColor?,
+    uiState: NotificationSettingsUiState,
     onKeywordFilterInputChange: (String) -> Unit,
+    onExcludeKeywordFilterInputChange: (String) -> Unit,
     onTitleRegexInputChange: (String) -> Unit,
     onDescriptionRegexInputChange: (String) -> Unit,
     onTimeRegexInputChange: (String) -> Unit,
     onSaveParsingRules: () -> Unit,
+    onRequireGlobalRegexRuleMatchChange: (Boolean) -> Unit,
+    onAddGlobalRegexRule: () -> Unit,
+    onEditGlobalRegexRule: (NotificationRegexRule) -> Unit,
+    onDeleteGlobalRegexRule: (String) -> Unit,
+    onToggleGlobalRegexRuleEnabled: (String, Boolean) -> Unit,
+    onMoveGlobalRegexRule: (String, Int) -> Unit,
     onDefaultIconSelected: (PinIcon) -> Unit,
     onDefaultBackgroundColorSelected: (PinAccentColor?) -> Unit,
 ) {
+    val globalRules = uiState.settings.globalRegexRules
+
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = "Filtering, Regex & Pin Appearance",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "Global Defaults & Fallback Rules",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Applies to allowlisted apps without custom rules, and optionally as fallback for per-app rules.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             OutlinedTextField(
-                value = keywordFilterInput,
+                value = uiState.keywordFilterInput,
                 onValueChange = onKeywordFilterInputChange,
-                label = { Text("Keyword filter (optional)") },
+                label = { Text("Global include keywords (optional)") },
                 placeholder = { Text("flight, gate, delivery, appointment") },
                 supportingText = {
                     Text("Comma-separated. If non-empty, only notifications containing a keyword create a pin.")
@@ -944,65 +1083,84 @@ private fun ParsingAndAppearanceCard(
             )
 
             OutlinedTextField(
-                value = titleRegexInput,
-                onValueChange = onTitleRegexInputChange,
-                label = { Text("Title extraction regex (optional)") },
-                placeholder = { Text("e.g. Flight\\s+([A-Z0-9]+)") },
-                isError = titleRegexError != null,
+                value = uiState.excludeKeywordFilterInput,
+                onValueChange = onExcludeKeywordFilterInputChange,
+                label = { Text("Global exclude keywords (optional)") },
+                placeholder = { Text("promo, newsletter, unsubscribe") },
                 supportingText = {
-                    Text(
-                        titleRegexError
-                            ?: "Uses capturing group 1 (or full match) when matched; otherwise uses notification title.",
-                    )
+                    Text("Comma-separated. Notifications containing any excluded keyword are ignored.")
                 },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            OutlinedTextField(
-                value = descriptionRegexInput,
-                onValueChange = onDescriptionRegexInputChange,
-                label = { Text("Description extraction regex (optional)") },
-                placeholder = { Text("e.g. Gate\\s+([A-Z0-9]+)") },
-                isError = descriptionRegexError != null,
-                supportingText = {
-                    Text(
-                        descriptionRegexError
-                            ?: "Uses capturing group 1 (or full match) when matched; otherwise uses notification text.",
-                    )
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            if (uiState.hasLegacyGlobalRegexes) {
+                Text(
+                    text = "Legacy Fallback Extraction Patterns",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = uiState.titleRegexInput,
+                    onValueChange = onTitleRegexInputChange,
+                    label = { Text("Title extraction regex (optional)") },
+                    placeholder = { Text("e.g. Flight\\s+([A-Z0-9]+)") },
+                    isError = uiState.titleRegexError != null,
+                    supportingText = {
+                        Text(
+                            uiState.titleRegexError
+                                ?: "Uses capturing group 1 (or full match) when matched; otherwise uses notification title.",
+                        )
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
-            OutlinedTextField(
-                value = timeRegexInput,
-                onValueChange = onTimeRegexInputChange,
-                label = { Text("Time extraction regex (optional)") },
-                placeholder = { Text("e.g. Departs\\s+(\\d{1,2}:\\d{2})") },
-                isError = timeRegexError != null,
-                supportingText = {
-                    Text(
-                        timeRegexError
-                            ?: "Optional regex to isolate event time before parsing; falls back to notification timestamp.",
-                    )
-                },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+                OutlinedTextField(
+                    value = uiState.descriptionRegexInput,
+                    onValueChange = onDescriptionRegexInputChange,
+                    label = { Text("Description extraction regex (optional)") },
+                    placeholder = { Text("e.g. Gate\\s+([A-Z0-9]+)") },
+                    isError = uiState.descriptionRegexError != null,
+                    supportingText = {
+                        Text(
+                            uiState.descriptionRegexError
+                                ?: "Uses capturing group 1 (or full match) when matched; otherwise uses notification text.",
+                        )
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                OutlinedTextField(
+                    value = uiState.timeRegexInput,
+                    onValueChange = onTimeRegexInputChange,
+                    label = { Text("Time extraction regex (optional)") },
+                    placeholder = { Text("e.g. Departs\\s+(\\d{1,2}:\\d{2})") },
+                    isError = uiState.timeRegexError != null,
+                    supportingText = {
+                        Text(
+                            uiState.timeRegexError
+                                ?: "Optional regex to isolate event time before parsing; falls back to notification timestamp.",
+                        )
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             Button(
                 onClick = onSaveParsingRules,
-                enabled = hasUnsavedEdits &&
-                    titleRegexError == null &&
-                    descriptionRegexError == null &&
-                    timeRegexError == null,
+                enabled = uiState.hasUnsavedRuleEdits &&
+                    uiState.titleRegexError == null &&
+                    uiState.descriptionRegexError == null &&
+                    uiState.timeRegexError == null,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (hasUnsavedEdits) "Save Parsing Rules" else "Parsing Rules Up to Date")
+                Text(if (uiState.hasUnsavedRuleEdits) "Save Global Filters" else "Global Filters Up to Date")
             }
 
-            if (rulesSavedMessage != null) {
+            if (uiState.rulesSavedMessage != null) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1014,9 +1172,55 @@ private fun ParsingAndAppearanceCard(
                         modifier = Modifier.size(16.dp),
                     )
                     Text(
-                        text = rulesSavedMessage,
+                        text = uiState.rulesSavedMessage,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Global Regex Rules (${globalRules.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Optional shared regex rules evaluated top-to-bottom across apps without overriding per-app rules.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                globalRules.forEachIndexed { index, rule ->
+                    RegexRuleSummaryCard(
+                        rule = rule,
+                        index = index,
+                        totalCount = globalRules.size,
+                        onToggleEnabled = { enabled -> onToggleGlobalRegexRuleEnabled(rule.id, enabled) },
+                        onMoveUp = { onMoveGlobalRegexRule(rule.id, -1) },
+                        onMoveDown = { onMoveGlobalRegexRule(rule.id, +1) },
+                        onEdit = { onEditGlobalRegexRule(rule) },
+                        onDelete = { onDeleteGlobalRegexRule(rule.id) },
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onAddGlobalRegexRule,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Add Global Regex Rule")
+                }
+
+                if (globalRules.isNotEmpty()) {
+                    SettingSwitchRow(
+                        title = "Only pin when a global regex rule matches",
+                        subtitle = "Skip notifications falling through to global defaults unless one of the rules above matches",
+                        checked = uiState.settings.requireGlobalRegexRuleMatch,
+                        onCheckedChange = onRequireGlobalRegexRuleMatchChange,
                     )
                 }
             }
@@ -1034,7 +1238,7 @@ private fun ParsingAndAppearanceCard(
             ) {
                 items(PinIcon.entries, key = { it.systemName }) { icon ->
                     FilterChip(
-                        selected = icon == selectedIcon,
+                        selected = icon == uiState.selectedDefaultIcon,
                         onClick = { onDefaultIconSelected(icon) },
                         label = { Text(icon.label) },
                         leadingIcon = {
@@ -1060,46 +1264,22 @@ private fun ParsingAndAppearanceCard(
             ) {
                 item(key = "notif-color-default") {
                     FilterChip(
-                        selected = selectedBackgroundColor == null,
+                        selected = uiState.selectedDefaultBackgroundColor == null,
                         onClick = { onDefaultBackgroundColorSelected(null) },
                         label = { Text("Default") },
                     )
                 }
                 items(PinAccentColor.entries, key = { it.hexCode }) { accent ->
-                    val swatchColor = accent.toComposeColor()
-                    val isSelected = accent == selectedBackgroundColor
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(swatchColor)
-                            .border(
-                                width = if (isSelected) 3.dp else 1.dp,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.onSurface
-                                } else {
-                                    MaterialTheme.colorScheme.outlineVariant
-                                },
-                                shape = CircleShape,
+                    AccentColorSwatch(
+                        accent = accent,
+                        isSelected = accent == uiState.selectedDefaultBackgroundColor,
+                        contentDescPrefix = "notification pin",
+                        onClick = {
+                            onDefaultBackgroundColorSelected(
+                                if (accent == uiState.selectedDefaultBackgroundColor) null else accent,
                             )
-                            .semantics {
-                                contentDescription = "${accent.label} notification pin accent color"
-                                selected = isSelected
-                            }
-                            .clickable(role = Role.RadioButton) {
-                                onDefaultBackgroundColorSelected(if (isSelected) null else accent)
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = swatchColor.contrastingCheckColor(),
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                    }
+                        },
+                    )
                 }
             }
             Spacer(Modifier.height(4.dp))

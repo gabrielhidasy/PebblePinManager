@@ -24,11 +24,16 @@ import xyz.hidasy.pebblepinmanager.domain.EventSource
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
 import xyz.hidasy.pebblepinmanager.domain.TimelineEvent
+import xyz.hidasy.pebblepinmanager.notifications.AppNotificationRuleConfig
 import xyz.hidasy.pebblepinmanager.notifications.InstalledAppInfo
 import xyz.hidasy.pebblepinmanager.notifications.InstalledAppsProvider
 import xyz.hidasy.pebblepinmanager.notifications.NotificationAccessStatusChecker
+import xyz.hidasy.pebblepinmanager.notifications.NotificationRegexRule
+import xyz.hidasy.pebblepinmanager.notifications.NotificationRuleAction
 import xyz.hidasy.pebblepinmanager.notifications.NotificationRuleSettings
 import xyz.hidasy.pebblepinmanager.notifications.NotificationSettingsRepository
+import xyz.hidasy.pebblepinmanager.notifications.NotificationTextField
+import xyz.hidasy.pebblepinmanager.notifications.RuleMatchScope
 import xyz.hidasy.pebblepinmanager.pebble.ConnectedPebbleWatch
 import xyz.hidasy.pebblepinmanager.pebble.PebbleCompanionStatus
 import xyz.hidasy.pebblepinmanager.pebble.PinDeleteResult
@@ -425,6 +430,108 @@ class NotificationSettingsViewModelTest {
                 (state.pinActionFeedback as SendFeedback.Error).headline.contains(expectedHeadlineFragment, ignoreCase = true),
             )
         }
+    }
+
+    @Test
+    fun `manages per-app N regex rules, global N regex rules, custom-rules filter, and live rule tester`() = runTest {
+        val gmailPkg = "com.google.android.gm"
+        val calendarPkg = "com.google.android.calendar"
+        val settingsRepo = FakeNotificationSettingsRepository()
+        val vm = NotificationSettingsViewModel(
+            settingsRepository = settingsRepo,
+            accessStatusChecker = object : NotificationAccessStatusChecker {
+                override fun isNotificationAccessEnabled(): Boolean = true
+            },
+            installedAppsProvider = FakeInstalledAppsProvider(
+                listOf(
+                    InstalledAppInfo(gmailPkg, "Gmail"),
+                    InstalledAppInfo(calendarPkg, "Calendar"),
+                ),
+            ),
+            sentPinRepository = FakeNotifSentPinRepository(),
+            pinSender = FakeNotifTimelinePinSender(),
+            clock = fixedClock,
+        )
+        advanceUntilIdle()
+
+        // Add two global regex rules and reorder them
+        vm.onUpsertGlobalRegexRule(
+            NotificationRegexRule(
+                id = "g1",
+                name = "Global First",
+                matchPattern = "first",
+            ),
+        )
+        vm.onUpsertGlobalRegexRule(
+            NotificationRegexRule(
+                id = "g2",
+                name = "Global Second",
+                matchPattern = "second",
+            ),
+        )
+        // Invalid regex rule is rejected cleanly
+        vm.onUpsertGlobalRegexRule(
+            NotificationRegexRule(
+                id = "g-bad",
+                name = "Broken",
+                matchPattern = "[unclosed",
+            ),
+        )
+        vm.onMoveGlobalRegexRule("g2", -1)
+        vm.onToggleGlobalRegexRuleEnabled("g1", false)
+        advanceUntilIdle()
+
+        val afterGlobal = settingsRepo.getSettings()
+        assertEquals(listOf("g2", "g1"), afterGlobal.globalRegexRules.map { it.id })
+        assertFalse(afterGlobal.globalRegexRules.first { it.id == "g1" }.enabled)
+
+        // Configure per-app Gmail rules (with Subject-as-Title preset + Flight rule)
+        vm.onSaveAppRuleConfig(
+            AppNotificationRuleConfig(
+                packageName = gmailPkg,
+                requireRegexRuleMatch = true,
+                regexRules = listOf(
+                    NotificationRegexRule(
+                        id = "gm-flight",
+                        name = "Flights",
+                        matchPattern = "Delta",
+                        matchTarget = NotificationTextField.TITLE,
+                        titleRegexPattern = """(Flight\s+[A-Z0-9]+)""",
+                        titleSource = NotificationTextField.BODY,
+                    ),
+                ),
+            ),
+        )
+        vm.onAddSubjectAsTitlePreset(gmailPkg)
+        advanceUntilIdle()
+
+        val stateWithAppRules = vm.uiState.value
+        assertTrue(gmailPkg in stateWithAppRules.settings.allowedPackages)
+        assertEquals(1, stateWithAppRules.configuredAppRulesCount)
+        assertEquals("2 regex rules", stateWithAppRules.appRuleBadgeLabel(gmailPkg))
+
+        // Filter apps by Custom Rules only
+        vm.onShowCustomRulesOnlyChange(true)
+        assertEquals(listOf(gmailPkg), vm.uiState.value.filteredInstalledApps.map { it.packageName })
+
+        // Test live rule preview against Gmail
+        vm.onRuleTesterPackageChange(gmailPkg)
+        vm.onRuleTesterTitleChange("Delta Air Lines")
+        vm.onRuleTesterBodyChange("Flight DL789 departs 15:00\nGate A4")
+        advanceUntilIdle()
+
+        val eval = vm.uiState.value.ruleTesterEvaluation
+        assertNotNull(eval)
+        assertNotNull(eval!!.event)
+        assertEquals(RuleMatchScope.APP_RULE, eval.matchedScope)
+        assertEquals("Flights", eval.matchedRuleName)
+        assertEquals("Flight DL789", eval.event!!.title)
+
+        // Reset app rules back to global defaults
+        vm.onResetAppRuleConfig(gmailPkg)
+        advanceUntilIdle()
+        assertEquals(0, vm.uiState.value.configuredAppRulesCount)
+        assertNull(vm.uiState.value.appRuleBadgeLabel(gmailPkg))
     }
 }
 
