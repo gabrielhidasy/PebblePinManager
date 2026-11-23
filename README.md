@@ -45,6 +45,10 @@ PebblePinManager consists of two cooperating components built for the modern **C
 
 See [INSTALL.md](INSTALL.md) for standalone Docker commands, local SDK builds, sideloading instructions for both `.apk` and `.pbw`, dual-emulator E2E testing, and the **Pebble Time (`basalt`) & Pebble Time 2 (`emery`)** verification checklist.
 
+## Privacy
+
+PebblePinManager works 100% locally on your phone and paired Pebble watch — it requests no internet permission, collects no telemetry or analytics, and includes no ads or tracking SDKs. See [PRIVACY.md](PRIVACY.md) for the full Privacy Policy.
+
 ## Contributing
 
 Bug reports, feature requests, and pull requests are welcome on [GitHub](https://github.com/gabrielhidasy/PebblePinManager). See [CONTRIBUTING.md](CONTRIBUTING.md) for build and test instructions.
