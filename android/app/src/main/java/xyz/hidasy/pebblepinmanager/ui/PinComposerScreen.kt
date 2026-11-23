@@ -97,6 +97,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import xyz.hidasy.pebblepinmanager.data.SentPinRecord
+import xyz.hidasy.pebblepinmanager.domain.EventSource
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinDurationFormatter
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
@@ -120,6 +121,7 @@ fun PinComposerRoute(
     onRequestNotificationPermission: () -> Unit = {},
     onOpenNotificationSettings: () -> Unit = {},
     onOpenOverlaySettings: () -> Unit = {},
+    bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -147,6 +149,7 @@ fun PinComposerRoute(
         onRequestNotificationPermission = onRequestNotificationPermission,
         onOpenNotificationSettings = onOpenNotificationSettings,
         onOpenOverlaySettings = onOpenOverlaySettings,
+        bottomBar = bottomBar,
         modifier = modifier,
     )
 }
@@ -177,6 +180,7 @@ fun PinComposerScreen(
     onRequestNotificationPermission: () -> Unit = {},
     onOpenNotificationSettings: () -> Unit = {},
     onOpenOverlaySettings: () -> Unit = {},
+    bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
@@ -241,6 +245,7 @@ fun PinComposerScreen(
                 },
             )
         },
+        bottomBar = bottomBar,
     ) { innerPadding ->
         BoxWithConstraints(
             modifier = Modifier
@@ -1437,8 +1442,13 @@ private fun RecentSentPinsSection(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            val sourceSuffix = if (record.source == EventSource.NOTIFICATION.name) {
+                                " • Auto (Notification)"
+                            } else {
+                                ""
+                            }
                             Text(
-                                text = "Pin ID: ${record.id} • ${pinIcon.label}",
+                                text = "Pin ID: ${record.id} • ${pinIcon.label}$sourceSuffix",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
