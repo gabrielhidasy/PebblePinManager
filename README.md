@@ -47,7 +47,7 @@ See [INSTALL.md](INSTALL.md) for standalone Docker commands, local SDK builds, s
 
 ## Privacy
 
-PebblePinManager works 100% locally on your phone and paired Pebble watch — it requests no internet permission, collects no telemetry or analytics, and includes no ads or tracking SDKs. See [PRIVACY.md](PRIVACY.md) for the full Privacy Policy.
+PebblePinManager works 100% locally on your phone and paired Pebble watch — it requests no internet permission, collects no telemetry or analytics, and includes no ads or tracking SDKs. Read the full Privacy Policy at [pebblepinmanager.hidasy.xyz/privacy](https://pebblepinmanager.hidasy.xyz/privacy) (generated from [PRIVACY.md](PRIVACY.md)).
 
 ## Contributing
 
