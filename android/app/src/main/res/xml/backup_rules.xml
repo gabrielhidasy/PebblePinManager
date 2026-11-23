@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!--
+        Exclude optional Developer Mode raw notification logs (which may contain sensitive
+        notifications from other apps such as 2FA codes or messages) from Android Auto Backup
+        on Android 8-11 (API 26-30). All other app DataStores (such as sent_timeline_pins
+        and user preferences) remain backed up normally.
+    -->
+    <exclude
+        domain="file"
+        path="datastore/raw_notifications_dev_log.preferences_pb" />
+</full-backup-content>

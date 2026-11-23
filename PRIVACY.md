@@ -16,7 +16,7 @@ PebblePinManager is designed to work **100% locally** on your Android device and
 ### 1. Pin History & App Preferences
 When you create or edit Timeline pins in PebblePinManager, the app stores your pin details (pin ID, title, optional description, event date/time, duration, icon, accent color, and local source metadata — up to the 100 most recent pins) strictly on your device using AndroidX Preferences DataStore (`sent_timeline_pins`). Basic UI preferences (such as whether you dismissed the watch-handoff permission banner) are also stored locally on your device.
 
-If you have enabled Android's system-level device backup on your phone, Android Auto Backup (`android:allowBackup="true"`) may include this local app data in your personal device backup according to your Android system settings. PebblePinManager itself does not access, transmit, or receive your backup data.
+If you have enabled Android's system-level device backup on your phone, Android Auto Backup (`android:allowBackup="true"`) may include your pin history (`sent_timeline_pins`) and app preferences in your personal device backup according to your Android system settings. Optional Developer Mode raw notification logs (`raw_notifications_dev_log`) are explicitly excluded from Android Auto Backup (cloud backup) and device-to-device transfer via `data_extraction_rules.xml` and `backup_rules.xml`. PebblePinManager itself does not access, transmit, or receive your backup data.
 
 ### 2. Local Communication with Your Paired Pebble Watch
 PebblePinManager uses **PebbleKit Android 2** (`libpebble3`) local Android IPC to discover an installed Pebble companion app on your phone (such as the Core Devices Pebble app or microPebble), inspect connected watch status, insert/update/delete Timeline pins, and exchange AppMessages with the companion watchapp over your phone's local Bluetooth connection.
@@ -33,7 +33,7 @@ If and when optional Android **Notification Access** (`BIND_NOTIFICATION_LISTENE
 
 - Notification Access is **off by default** and strictly opt-in, scoped to apps you choose.
 - Notification content is read and processed **strictly on-device** solely to generate or update local Pebble Timeline pins for your paired watch.
-- If you install a `-dev` or debug build and explicitly enable optional **Developer Mode**, up to the 100 most recent raw notifications are stored strictly on-device (`raw_notifications_dev_log`) so you can inspect notification fields and test regex rules interactively; you can clear this log or disable Developer Mode at any time. Standard release builds do not include Developer Mode or raw notification capture.
+- If you install a `-dev` or debug build and explicitly enable optional **Developer Mode**, up to the 100 most recent raw notifications are stored strictly on-device (`raw_notifications_dev_log`) so you can inspect notification fields and test regex rules interactively; you can clear this log or disable Developer Mode at any time. This log is explicitly excluded from Android Auto Backup and device-to-device transfer so captured notifications are never uploaded to Google Drive or copied to another device. Standard release builds do not include Developer Mode or raw notification capture.
 - Notification data is **never transmitted off-device**, never uploaded to any server, and never shared with the developer or any third party.
 - You can disable or revoke Notification Access at any time in your Android system settings.
 

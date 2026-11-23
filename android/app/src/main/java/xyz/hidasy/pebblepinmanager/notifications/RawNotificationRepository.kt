@@ -213,7 +213,7 @@ class DataStoreRawNotificationRepository(
 
     companion object {
         const val DEFAULT_MAX_RECORDS: Int = 100
-        private const val STORE_NAME: String = "raw_notifications_dev_log"
+        internal const val STORE_NAME: String = "raw_notifications_dev_log"
         private val RAW_NOTIFICATIONS_JSON_KEY = stringPreferencesKey("raw_notifications_json")
 
         private val defaultJson: Json = Json {
