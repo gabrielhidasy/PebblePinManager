@@ -86,6 +86,18 @@ class UiNode:
     clickable: bool
 
     @property
+    def width(self) -> int:
+        return max(0, self.bounds[2] - self.bounds[0])
+
+    @property
+    def height(self) -> int:
+        return max(0, self.bounds[3] - self.bounds[1])
+
+    @property
+    def is_visible_box(self) -> bool:
+        return self.width >= 12 and self.height >= 12
+
+    @property
     def center(self) -> tuple[int, int]:
         x1, y1, x2, y2 = self.bounds
         return ((x1 + x2) // 2, (y1 + y2) // 2)
@@ -119,9 +131,9 @@ class AdbDriver:
                 self._screen_size = (1080, 2160)
         return self._screen_size
 
-    def dump_ui(self) -> list[UiNode]:
+    def dump_ui_xml(self) -> str:
         remote_xml = "/sdcard/pebblepin-ui-dump.xml"
-        # Retry once if uiautomator is momentarily busy
+        # Retry if uiautomator is momentarily busy
         for attempt in range(3):
             res = self.run("shell", "uiautomator", "dump", remote_xml, check=False, timeout=25)
             if res.returncode == 0:
@@ -130,13 +142,18 @@ class AdbDriver:
                 if start == -1:
                     start = xml_text.find("<hierarchy")
                 if start != -1:
+                    candidate = xml_text[start:]
                     try:
-                        root = ET.fromstring(xml_text[start:])
-                        return self._parse_nodes(root)
+                        ET.fromstring(candidate)
+                        return candidate
                     except ET.ParseError:
                         pass
             time.sleep(0.6 * (attempt + 1))
         raise RuntimeError("Failed to dump Android UI hierarchy via uiautomator")
+
+    def dump_ui(self) -> list[UiNode]:
+        root = ET.fromstring(self.dump_ui_xml())
+        return self._parse_nodes(root)
 
     @staticmethod
     def _parse_nodes(root: ET.Element) -> list[UiNode]:
@@ -164,6 +181,8 @@ class AdbDriver:
         text_contains: str | None = None,
         content_desc: str | None = None,
         content_desc_contains: str | None = None,
+        label: str | None = None,
+        label_contains: str | None = None,
         class_name: str | None = None,
     ) -> bool:
         if text is not None and node.text != text:
@@ -174,26 +193,79 @@ class AdbDriver:
             return False
         if content_desc_contains is not None and content_desc_contains not in node.content_desc:
             return False
+        if label is not None and node.text != label and node.content_desc != label:
+            return False
+        if (
+            label_contains is not None
+            and label_contains not in node.text
+            and label_contains not in node.content_desc
+        ):
+            return False
         if class_name is not None and node.class_name != class_name:
             return False
         return True
 
+    @staticmethod
+    def _summarize_labels(nodes: list[UiNode], limit: int = 40) -> list[str]:
+        labels: list[str] = []
+        seen: set[str] = set()
+        for n in nodes:
+            if not n.is_visible_box:
+                continue
+            for val in (n.text, n.content_desc):
+                if val and val not in seen:
+                    seen.add(val)
+                    labels.append(val)
+                    if len(labels) >= limit:
+                        return labels
+        return labels
+
+    def _safe_viewport_y_range(self, nodes: list[UiNode]) -> tuple[int, int]:
+        _, h = self.screen_size()
+        top_y = int(h * 0.11)
+        bottom_y = int(h * 0.88)
+        # Keep tap targets above the Material 3 bottom NavigationBar ("Pins" / "Auto-Pins")
+        nav_tops = [
+            n.bounds[1]
+            for n in nodes
+            if n.bounds[1] > int(h * 0.75)
+            and (n.text in ("Pins", "Auto-Pins") or n.content_desc in ("Timeline Pins", "Auto-Pins"))
+        ]
+        if nav_tops:
+            bottom_y = min(bottom_y, min(nav_tops) - 36)
+        return (top_y, max(top_y + 100, bottom_y))
+
     def find_nodes(self, **criteria: Any) -> list[UiNode]:
         return [n for n in self.dump_ui() if self._matches(n, **criteria)]
 
-    def wait_for_node(self, timeout: float = 20.0, **criteria: Any) -> UiNode:
+    def wait_for_node(
+        self,
+        timeout: float = 20.0,
+        scroll_direction: str | None = None,
+        **criteria: Any,
+    ) -> UiNode:
         deadline = time.time() + timeout
-        last_texts: list[str] = []
+        last_labels: list[str] = []
+        attempts = 0
+        scrolls_done = 0
         while time.time() < deadline:
             nodes = self.dump_ui()
-            last_texts = [n.text or n.content_desc for n in nodes if (n.text or n.content_desc)]
+            last_labels = self._summarize_labels(nodes)
             for n in nodes:
-                if self._matches(n, **criteria):
+                if n.is_visible_box and self._matches(n, **criteria):
                     return n
+            attempts += 1
+            if scroll_direction is not None and attempts >= 2 and scrolls_done < 3:
+                if scroll_direction == "down":
+                    self.swipe_down_page()
+                else:
+                    self.swipe_up_page()
+                scrolls_done += 1
+                continue
             time.sleep(0.8)
         raise AssertionError(
             f"Timed out waiting for UI node matching {criteria}. "
-            f"Visible labels: {last_texts[:30]}"
+            f"Visible labels: {last_labels}"
         )
 
     def tap(self, x: int, y: int) -> None:
@@ -201,25 +273,44 @@ class AdbDriver:
 
     def swipe_down_page(self) -> None:
         w, h = self.screen_size()
-        self.shell("input", "swipe", str(w // 2), str(int(h * 0.78)), str(w // 2), str(int(h * 0.28)), "350")
+        self.shell("input", "swipe", str(w // 2), str(int(h * 0.74)), str(w // 2), str(int(h * 0.28)), "350")
         time.sleep(0.6)
 
     def swipe_up_page(self) -> None:
         w, h = self.screen_size()
-        self.shell("input", "swipe", str(w // 2), str(int(h * 0.28)), str(w // 2), str(int(h * 0.78)), "350")
+        self.shell("input", "swipe", str(w // 2), str(int(h * 0.28)), str(w // 2), str(int(h * 0.74)), "350")
         time.sleep(0.6)
 
-    def find_or_scroll(self, max_scrolls: int = 5, direction: str = "down", **criteria: Any) -> UiNode:
+    def find_or_scroll(self, max_scrolls: int = 8, direction: str = "down", **criteria: Any) -> UiNode:
+        last_labels: list[str] = []
+        prev_edge_bounds: tuple[int, int, int, int] | None = None
         for attempt in range(max_scrolls + 1):
-            matches = self.find_nodes(**criteria)
-            if matches:
-                return matches[0]
+            nodes = self.dump_ui()
+            last_labels = self._summarize_labels(nodes)
+            top_y, bottom_y = self._safe_viewport_y_range(nodes)
+            visible_matches = [n for n in nodes if n.is_visible_box and self._matches(n, **criteria)]
+            if visible_matches:
+                visible_matches.sort(key=lambda n: not n.clickable)
+                in_safe_band = [n for n in visible_matches if top_y <= n.center[1] <= bottom_y]
+                if in_safe_band:
+                    return in_safe_band[0]
+                best = visible_matches[0]
+                # If already at the scroll boundary (node didn't move) or out of scrolls, accept it
+                if prev_edge_bounds == best.bounds or attempt == max_scrolls:
+                    return best
+                prev_edge_bounds = best.bounds
+            else:
+                prev_edge_bounds = None
+
             if attempt < max_scrolls:
                 if direction == "down":
                     self.swipe_down_page()
                 else:
                     self.swipe_up_page()
-        raise AssertionError(f"Could not locate UI node after {max_scrolls} scrolls: {criteria}")
+        raise AssertionError(
+            f"Could not locate UI node after {max_scrolls} scrolls: {criteria}. "
+            f"Visible labels: {last_labels}"
+        )
 
     def dismiss_ime_if_shown(self) -> None:
         out = self.shell("dumpsys", "input_method", check=False)
@@ -649,7 +740,8 @@ def run_platform_e2e(
         adb.tap(*offset_chip.center)
         time.sleep(0.5)
 
-        flag_chip = adb.find_or_scroll(direction="down", text="Flag")
+        # Icon grid tiles show Text(label) only when selected and contentDescription(label) when unselected
+        flag_chip = adb.find_or_scroll(direction="down", label="Flag")
         adb.tap(*flag_chip.center)
         time.sleep(0.5)
 
@@ -664,7 +756,7 @@ def run_platform_e2e(
         send_btn = adb.find_or_scroll(direction="down", text="Send to Pebble Timeline")
         adb.tap(*send_btn.center)
 
-        adb.wait_for_node(timeout=20.0, text_contains="Pin sent")
+        adb.wait_for_node(timeout=20.0, text_contains="Pin sent", scroll_direction="down")
         adb.find_or_scroll(direction="down", text="Recent Sent Pins (1)")
         adb.screencap(screenshots_dir / "03-android-pin-sent.png")
 
@@ -712,7 +804,7 @@ def run_platform_e2e(
 
         update_btn = adb.find_or_scroll(direction="down", text="Update Timeline Pin")
         adb.tap(*update_btn.center)
-        adb.wait_for_node(timeout=20.0, text_contains="updated")
+        adb.wait_for_node(timeout=20.0, text_contains="updated", scroll_direction="down")
         adb.find_or_scroll(direction="down", text="Updated Dentist Visit")
         adb.screencap(screenshots_dir / "04-android-pin-updated.png")
 
@@ -834,6 +926,22 @@ def run_platform_e2e(
             encoding="utf-8",
         )
         return report
+
+    except Exception:
+        # Capture failure diagnostics (screenshot + UI hierarchy XML) for CI artifact upload
+        try:
+            adb.screencap(screenshots_dir / "99-android-failure.png")
+            log(f"Saved failure screenshot: {screenshots_dir / '99-android-failure.png'}")
+        except Exception:
+            pass
+        try:
+            failure_xml = adb.dump_ui_xml()
+            dump_path = logs_dir / f"android-ui-failure-{platform}.xml"
+            dump_path.write_text(failure_xml, encoding="utf-8")
+            log(f"Saved failure UI hierarchy dump: {dump_path}")
+        except Exception:
+            pass
+        raise
 
     finally:
         if pebble_rec is not None:
