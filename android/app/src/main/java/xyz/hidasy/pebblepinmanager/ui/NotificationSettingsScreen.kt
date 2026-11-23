@@ -108,6 +108,7 @@ fun NotificationSettingsRoute(
         onIgnoreOngoingChange = viewModel::onIgnoreOngoingChange,
         onIgnoreGroupSummaryChange = viewModel::onIgnoreGroupSummaryChange,
         onDeletePinOnDismissChange = viewModel::onDeletePinOnDismissChange,
+        onDevModeEnabledChange = viewModel::onDevModeEnabledChange,
         onTogglePackageAllowed = viewModel::onTogglePackageAllowed,
         onClearAllowedPackages = viewModel::onClearAllowedPackages,
         onAppSearchQueryChange = viewModel::onAppSearchQueryChange,
@@ -151,6 +152,7 @@ fun NotificationSettingsScreen(
     onIgnoreOngoingChange: (Boolean) -> Unit,
     onIgnoreGroupSummaryChange: (Boolean) -> Unit,
     onDeletePinOnDismissChange: (Boolean) -> Unit,
+    onDevModeEnabledChange: (Boolean) -> Unit = {},
     onTogglePackageAllowed: (String) -> Unit,
     onClearAllowedPackages: () -> Unit,
     onAppSearchQueryChange: (String) -> Unit,
@@ -252,11 +254,13 @@ fun NotificationSettingsScreen(
                 ignoreOngoing = uiState.settings.ignoreOngoing,
                 ignoreGroupSummary = uiState.settings.ignoreGroupSummary,
                 deletePinOnDismiss = uiState.settings.deletePinOnDismiss,
+                isDevModeEnabled = uiState.settings.isDevModeEnabled,
                 onAutoPinEnabledChange = onAutoPinEnabledChange,
                 onExtractTimeFromTextChange = onExtractTimeFromTextChange,
                 onIgnoreOngoingChange = onIgnoreOngoingChange,
                 onIgnoreGroupSummaryChange = onIgnoreGroupSummaryChange,
                 onDeletePinOnDismissChange = onDeletePinOnDismissChange,
+                onDevModeEnabledChange = onDevModeEnabledChange,
             )
 
             AllowedAppsAllowlistCard(
@@ -674,11 +678,13 @@ private fun AutoPinBehaviorCard(
     ignoreOngoing: Boolean,
     ignoreGroupSummary: Boolean,
     deletePinOnDismiss: Boolean,
+    isDevModeEnabled: Boolean,
     onAutoPinEnabledChange: (Boolean) -> Unit,
     onExtractTimeFromTextChange: (Boolean) -> Unit,
     onIgnoreOngoingChange: (Boolean) -> Unit,
     onIgnoreGroupSummaryChange: (Boolean) -> Unit,
     onDeletePinOnDismissChange: (Boolean) -> Unit,
+    onDevModeEnabledChange: (Boolean) -> Unit,
 ) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -724,6 +730,13 @@ private fun AutoPinBehaviorCard(
                 subtitle = "Keep pins on your watch timeline by default even after swiping away",
                 checked = deletePinOnDismiss,
                 onCheckedChange = onDeletePinOnDismissChange,
+            )
+            HorizontalDivider()
+            SettingSwitchRow(
+                title = "Developer mode",
+                subtitle = "Show the Dev tab to inspect raw incoming notifications and explore regex rules interactively",
+                checked = isDevModeEnabled,
+                onCheckedChange = onDevModeEnabledChange,
             )
         }
     }

@@ -27,10 +27,14 @@ class PebbleNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        activeInstance = this
         _isListenerConnected.value = true
     }
 
     override fun onListenerDisconnected() {
+        if (activeInstance === this) {
+            activeInstance = null
+        }
         _isListenerConnected.value = false
         super.onListenerDisconnected()
     }
@@ -40,30 +44,51 @@ class PebbleNotificationListenerService : NotificationListenerService() {
         if (sbn.packageName == packageName) return
 
         val candidate = extractCandidate(sbn)
+        val rawSnapshot = buildRawRecord(sbn, candidate, capturedAtMillis = System.currentTimeMillis())
         val app = application as? PebblePinManagerApp ?: return
         val pipeline = app.container.notificationPinPipeline
+        val settingsRepo = app.container.notificationSettingsRepository
+        val rawRepo = app.container.rawNotificationRepository
 
         serviceScope.launch {
+            var outcomeLabel: String? = null
             try {
                 when (val result = pipeline.process(candidate)) {
                     is NotificationPipelineResult.Delivered -> {
+                        outcomeLabel = "Delivered (${result.pinId})"
                         Log.d(TAG, "Delivered notification pin ${result.pinId} from ${candidate.sourcePackage}")
                     }
                     is NotificationPipelineResult.Unchanged -> {
+                        outcomeLabel = "Unchanged (${result.pinId})"
                         Log.d(TAG, "Skipped unchanged notification pin ${result.pinId} from ${candidate.sourcePackage}")
                     }
                     is NotificationPipelineResult.ValidationFailed -> {
+                        outcomeLabel = "Validation failed"
                         Log.w(TAG, "Skipped invalid notification pin from ${candidate.sourcePackage}: ${result.reasons}")
                     }
                     is NotificationPipelineResult.DeliveryFailed -> {
+                        outcomeLabel = "Delivery failed"
                         Log.w(TAG, "Failed delivering notification pin from ${candidate.sourcePackage}: ${result.result}")
                     }
-                    NotificationPipelineResult.Ignored -> Unit
+                    NotificationPipelineResult.Ignored -> {
+                        outcomeLabel = "Ignored"
+                    }
                 }
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (err: Throwable) {
+                outcomeLabel = "Error"
                 Log.e(TAG, "Unexpected error processing notification from ${candidate.sourcePackage}", err)
+            }
+
+            try {
+                if (settingsRepo.getSettings().isDevModeEnabled) {
+                    rawRepo.recordNotification(rawSnapshot.copy(pipelineOutcome = outcomeLabel))
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (err: Throwable) {
+                Log.w(TAG, "Failed to record dev raw notification from ${candidate.sourcePackage}", err)
             }
         }
     }
@@ -95,9 +120,30 @@ class PebbleNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onDestroy() {
+        if (activeInstance === this) {
+            activeInstance = null
+        }
         _isListenerConnected.value = false
         serviceScope.cancel()
         super.onDestroy()
+    }
+
+    private fun buildRawRecord(
+        sbn: StatusBarNotification,
+        candidate: NotificationPinCandidate,
+        capturedAtMillis: Long,
+        pipelineOutcome: String? = null,
+    ): RawNotificationRecord {
+        val notification = sbn.notification
+        val postTime = sbn.postTime.takeIf { it > 0L } ?: candidate.eventTimeMillis
+        return RawNotificationRecord.fromCandidate(
+            candidate = candidate,
+            capturedAtMillis = capturedAtMillis,
+            postTimeMillis = postTime,
+            channelId = notification?.channelId,
+            category = notification?.category,
+            pipelineOutcome = pipelineOutcome,
+        )
     }
 
     private fun extractCandidate(sbn: StatusBarNotification): NotificationPinCandidate {
@@ -156,5 +202,32 @@ class PebbleNotificationListenerService : NotificationListenerService() {
         private const val TAG = "PebbleNotifListener"
         private val _isListenerConnected = MutableStateFlow(false)
         val isListenerConnected: StateFlow<Boolean> = _isListenerConnected.asStateFlow()
+
+        @Volatile
+        private var activeInstance: PebbleNotificationListenerService? = null
+
+        /**
+         * Captures currently active status-bar notifications (excluding this app) when the
+         * listener service is connected, so Dev Mode can immediately inspect existing shade items.
+         */
+        fun snapshotActiveNotifications(
+            capturedAtMillis: Long = System.currentTimeMillis(),
+        ): List<RawNotificationRecord> {
+            val service = activeInstance ?: return emptyList()
+            val active = runCatching { service.activeNotifications }.getOrNull() ?: return emptyList()
+            return active
+                .filterNotNull()
+                .filter { it.packageName != service.packageName }
+                .map { sbn ->
+                    val candidate = service.extractCandidate(sbn)
+                    service.buildRawRecord(
+                        sbn = sbn,
+                        candidate = candidate,
+                        capturedAtMillis = capturedAtMillis,
+                        pipelineOutcome = "Active snapshot",
+                    )
+                }
+                .sortedByDescending { it.postTimeMillis }
+        }
     }
 }

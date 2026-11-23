@@ -33,6 +33,7 @@ If and when optional Android **Notification Access** (`BIND_NOTIFICATION_LISTENE
 
 - Notification Access is **off by default** and strictly opt-in, scoped to apps you choose.
 - Notification content is read and processed **strictly on-device** solely to generate or update local Pebble Timeline pins for your paired watch.
+- If you explicitly enable optional **Developer Mode**, up to the 100 most recent raw notifications are stored strictly on-device (`raw_notifications_dev_log`) so you can inspect notification fields and test regex rules interactively; you can clear this log or disable Developer Mode at any time.
 - Notification data is **never transmitted off-device**, never uploaded to any server, and never shared with the developer or any third party.
 - You can disable or revoke Notification Access at any time in your Android system settings.
 

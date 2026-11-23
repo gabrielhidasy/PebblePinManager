@@ -30,6 +30,7 @@ class DataStoreNotificationSettingsRepositoryTest {
         assertTrue(initial.ignoreOngoing)
         assertTrue(initial.ignoreGroupSummary)
         assertFalse(initial.deletePinOnDismiss)
+        assertFalse(initial.isDevModeEnabled)
 
         repo.updateSettings { current ->
             current.copy(
@@ -39,6 +40,7 @@ class DataStoreNotificationSettingsRepositoryTest {
                 defaultIconUri = PinIcon.SCHEDULED_FLIGHT.uri,
                 defaultBackgroundColor = PinAccentColor.TEAL.hexCode,
                 deletePinOnDismiss = true,
+                isDevModeEnabled = true,
             )
         }
 
@@ -50,6 +52,7 @@ class DataStoreNotificationSettingsRepositoryTest {
         assertEquals(PinIcon.SCHEDULED_FLIGHT.uri, persisted.defaultIconUri)
         assertEquals(PinAccentColor.TEAL.hexCode, persisted.defaultBackgroundColor)
         assertTrue(persisted.deletePinOnDismiss)
+        assertTrue(persisted.isDevModeEnabled)
     }
 
     @Test

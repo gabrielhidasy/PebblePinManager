@@ -153,6 +153,12 @@ class NotificationSettingsViewModel(
         }
     }
 
+    fun onDevModeEnabledChange(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.updateSettings { it.copy(isDevModeEnabled = enabled) }
+        }
+    }
+
     fun onTogglePackageAllowed(packageName: String) {
         val normalized = packageName.trim()
         if (normalized.isEmpty()) return

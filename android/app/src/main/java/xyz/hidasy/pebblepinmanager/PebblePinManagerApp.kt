@@ -12,9 +12,11 @@ import xyz.hidasy.pebblepinmanager.data.SentPinRepository
 import xyz.hidasy.pebblepinmanager.notifications.AndroidInstalledAppsProvider
 import xyz.hidasy.pebblepinmanager.notifications.AndroidNotificationAccessStatusChecker
 import xyz.hidasy.pebblepinmanager.notifications.DataStoreNotificationSettingsRepository
+import xyz.hidasy.pebblepinmanager.notifications.DataStoreRawNotificationRepository
 import xyz.hidasy.pebblepinmanager.notifications.InstalledAppsProvider
 import xyz.hidasy.pebblepinmanager.notifications.NotificationPinPipeline
 import xyz.hidasy.pebblepinmanager.notifications.NotificationSettingsRepository
+import xyz.hidasy.pebblepinmanager.notifications.RawNotificationRepository
 import xyz.hidasy.pebblepinmanager.notifications.RuleBasedNotificationPinMapper
 import xyz.hidasy.pebblepinmanager.pebble.AndroidPhoneLaunchEnvironment
 import xyz.hidasy.pebblepinmanager.pebble.AppForegroundTracker
@@ -76,6 +78,10 @@ class AppContainer(private val application: Application) {
 
     val notificationSettingsRepository: NotificationSettingsRepository by lazy {
         DataStoreNotificationSettingsRepository.create(application)
+    }
+
+    val rawNotificationRepository: RawNotificationRepository by lazy {
+        DataStoreRawNotificationRepository.create(application)
     }
 
     val notificationAccessStatusChecker: AndroidNotificationAccessStatusChecker by lazy {

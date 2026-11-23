@@ -994,7 +994,7 @@ internal fun RegexRuleEditorDialog(
 }
 
 @Composable
-private fun FieldSelectorRow(
+internal fun FieldSelectorRow(
     label: String,
     selectedField: NotificationTextField,
     onFieldSelected: (NotificationTextField) -> Unit,

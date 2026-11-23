@@ -532,6 +532,15 @@ class NotificationSettingsViewModelTest {
         advanceUntilIdle()
         assertEquals(0, vm.uiState.value.configuredAppRulesCount)
         assertNull(vm.uiState.value.appRuleBadgeLabel(gmailPkg))
+
+        // Toggle Developer Mode on and off
+        assertFalse(vm.uiState.value.settings.isDevModeEnabled)
+        vm.onDevModeEnabledChange(true)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.settings.isDevModeEnabled)
+        vm.onDevModeEnabledChange(false)
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.settings.isDevModeEnabled)
     }
 }
 

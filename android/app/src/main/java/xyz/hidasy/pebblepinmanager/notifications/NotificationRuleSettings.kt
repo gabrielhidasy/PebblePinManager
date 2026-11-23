@@ -174,6 +174,7 @@ data class NotificationRuleSettings(
     val ignoreOngoing: Boolean = true,
     val ignoreGroupSummary: Boolean = true,
     val deletePinOnDismiss: Boolean = false,
+    val isDevModeEnabled: Boolean = false,
     val defaultIconUri: String = PinIcon.NOTIFICATION_FLAG.uri,
     val defaultBackgroundColor: String? = null,
     val defaultDurationMinutes: Int? = null,

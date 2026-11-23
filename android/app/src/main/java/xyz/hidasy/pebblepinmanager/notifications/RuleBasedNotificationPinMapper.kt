@@ -16,6 +16,52 @@ enum class RuleMatchScope {
 }
 
 /**
+ * Normalized notification text fields derived from a [NotificationPinCandidate] and evaluated
+ * consistently by both [RuleBasedNotificationPinMapper] and [NotificationRegexExplorer].
+ */
+data class NotificationTextFields(
+    val rawTitle: String,
+    val rawBody: String?,
+    val searchableText: String,
+) {
+    fun textForField(field: NotificationTextField): String = when (field) {
+        NotificationTextField.TITLE -> rawTitle
+        NotificationTextField.BODY -> rawBody.orEmpty()
+        NotificationTextField.ANY -> searchableText
+    }
+
+    companion object {
+        fun fromCandidate(candidate: NotificationPinCandidate): NotificationTextFields {
+            val rawTitle = candidate.title.trim().ifEmpty { candidate.appLabel?.trim().orEmpty() }
+            val rawBody = buildBodyText(candidate)
+            val searchableText = listOfNotNull(
+                rawTitle.takeIf { it.isNotEmpty() },
+                rawBody?.takeIf { it.isNotBlank() },
+                candidate.subText?.trim()?.takeIf { it.isNotEmpty() },
+            ).joinToString(separator = "\n")
+            return NotificationTextFields(
+                rawTitle = rawTitle,
+                rawBody = rawBody,
+                searchableText = searchableText,
+            )
+        }
+
+        fun buildBodyText(candidate: NotificationPinCandidate): String? {
+            val bigText = candidate.bigText?.trim()?.takeIf { it.isNotEmpty() }
+            val text = candidate.text?.trim()?.takeIf { it.isNotEmpty() }
+            val subText = candidate.subText?.trim()?.takeIf { it.isNotEmpty() }
+
+            val mainBody = bigText ?: text
+            return when {
+                mainBody == null -> subText
+                subText == null || mainBody.contains(subText, ignoreCase = true) -> mainBody
+                else -> "$mainBody\n$subText"
+            }
+        }
+    }
+}
+
+/**
  * Detailed outcome of evaluating a [NotificationPinCandidate] against [NotificationRuleSettings],
  * useful both in the notification listener pipeline and in the in-app live rule tester.
  */
@@ -73,17 +119,13 @@ class RuleBasedNotificationPinMapper(
             return ignored("Ignored group summary notification.")
         }
 
-        val rawTitle = candidate.title.trim().ifEmpty { candidate.appLabel?.trim().orEmpty() }
-        val rawBody = buildBodyText(candidate)
+        val textFields = NotificationTextFields.fromCandidate(candidate)
+        val rawTitle = textFields.rawTitle
+        val rawBody = textFields.rawBody
         if (rawTitle.isEmpty() && rawBody.isNullOrBlank()) {
             return ignored("Notification has no title or body text.")
         }
-
-        val searchableText = listOfNotNull(
-            rawTitle.takeIf { it.isNotEmpty() },
-            rawBody?.takeIf { it.isNotBlank() },
-            candidate.subText?.trim()?.takeIf { it.isNotEmpty() },
-        ).joinToString(separator = "\n")
+        val searchableText = textFields.searchableText
 
         val activeAppConfig = settings.appRuleFor(candidate.sourcePackage)?.takeIf { it.enabled }
 
@@ -506,24 +548,11 @@ class RuleBasedNotificationPinMapper(
         rawTitle: String,
         rawBody: String?,
         searchableText: String,
-    ): String = when (field) {
-        NotificationTextField.TITLE -> rawTitle
-        NotificationTextField.BODY -> rawBody.orEmpty()
-        NotificationTextField.ANY -> searchableText
-    }
-
-    private fun buildBodyText(candidate: NotificationPinCandidate): String? {
-        val bigText = candidate.bigText?.trim()?.takeIf { it.isNotEmpty() }
-        val text = candidate.text?.trim()?.takeIf { it.isNotEmpty() }
-        val subText = candidate.subText?.trim()?.takeIf { it.isNotEmpty() }
-
-        val mainBody = bigText ?: text
-        return when {
-            mainBody == null -> subText
-            subText == null || mainBody.contains(subText, ignoreCase = true) -> mainBody
-            else -> "$mainBody\n$subText"
-        }
-    }
+    ): String = NotificationTextFields(
+        rawTitle = rawTitle,
+        rawBody = rawBody,
+        searchableText = searchableText,
+    ).textForField(field)
 
     private fun extractByRegex(
         pattern: String,

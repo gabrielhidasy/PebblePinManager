@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.Badge
@@ -22,6 +23,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -31,6 +33,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import xyz.hidasy.pebblepinmanager.notifications.PebbleNotificationListenerService
 import xyz.hidasy.pebblepinmanager.pebble.AndroidPhoneLaunchEnvironment
 import xyz.hidasy.pebblepinmanager.pebble.PhoneHandoffCapabilities
+import xyz.hidasy.pebblepinmanager.ui.DevModeRoute
+import xyz.hidasy.pebblepinmanager.ui.DevModeViewModel
+import xyz.hidasy.pebblepinmanager.ui.DevModeViewModelFactory
 import xyz.hidasy.pebblepinmanager.ui.NotificationSettingsRoute
 import xyz.hidasy.pebblepinmanager.ui.NotificationSettingsViewModel
 import xyz.hidasy.pebblepinmanager.ui.NotificationSettingsViewModelFactory
@@ -42,6 +47,7 @@ import xyz.hidasy.pebblepinmanager.ui.theme.PebblePinManagerTheme
 private enum class AppTab {
     COMPOSE,
     NOTIFICATIONS,
+    DEV,
 }
 
 class MainActivity : ComponentActivity() {
@@ -65,6 +71,16 @@ class MainActivity : ComponentActivity() {
             pinSender = appContainer.pinSender,
             listenerConnectedFlow = PebbleNotificationListenerService.isListenerConnected,
             onPinsChanged = { appContainer.watchPinSyncManager.syncRecentPins() },
+        )
+    }
+
+    private val devModeViewModel: DevModeViewModel by viewModels {
+        DevModeViewModelFactory(
+            rawNotificationRepository = appContainer.rawNotificationRepository,
+            settingsRepository = appContainer.notificationSettingsRepository,
+            accessStatusChecker = appContainer.notificationAccessStatusChecker,
+            installedAppsProvider = appContainer.installedAppsProvider,
+            listenerConnectedFlow = PebbleNotificationListenerService.isListenerConnected,
         )
     }
 
@@ -94,6 +110,7 @@ class MainActivity : ComponentActivity() {
                 PebblePinManagerRoot(
                     pinComposerViewModel = pinComposerViewModel,
                     notificationSettingsViewModel = notificationSettingsViewModel,
+                    devModeViewModel = devModeViewModel,
                     handoffCapabilities = handoffCapabilities,
                     isHandoffBannerDismissed = isHandoffBannerDismissed,
                     onDismissHandoffBanner = ::dismissHandoffBanner,
@@ -168,6 +185,7 @@ class MainActivity : ComponentActivity() {
 private fun PebblePinManagerRoot(
     pinComposerViewModel: PinComposerViewModel,
     notificationSettingsViewModel: NotificationSettingsViewModel,
+    devModeViewModel: DevModeViewModel,
     handoffCapabilities: PhoneHandoffCapabilities?,
     isHandoffBannerDismissed: Boolean,
     onDismissHandoffBanner: () -> Unit,
@@ -178,6 +196,14 @@ private fun PebblePinManagerRoot(
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.COMPOSE) }
     val notificationState by notificationSettingsViewModel.uiState.collectAsStateWithLifecycle()
+    val devModeState by devModeViewModel.uiState.collectAsStateWithLifecycle()
+    val isDevModeEnabled = notificationState.settings.isDevModeEnabled
+
+    LaunchedEffect(isDevModeEnabled) {
+        if (!isDevModeEnabled && selectedTab == AppTab.DEV) {
+            selectedTab = AppTab.NOTIFICATIONS
+        }
+    }
 
     val bottomNavigation: @Composable () -> Unit = {
         NavigationBar {
@@ -219,6 +245,28 @@ private fun PebblePinManagerRoot(
                 },
                 label = { Text("Auto-Pins") },
             )
+            if (isDevModeEnabled) {
+                NavigationBarItem(
+                    selected = selectedTab == AppTab.DEV,
+                    onClick = { selectedTab = AppTab.DEV },
+                    icon = {
+                        BadgedBox(
+                            badge = {
+                                val count = devModeState.rawNotifications.size
+                                if (count > 0) {
+                                    Badge { Text(count.toString()) }
+                                }
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Code,
+                                contentDescription = "Dev Inspector",
+                            )
+                        }
+                    },
+                    label = { Text("Dev") },
+                )
+            }
         }
     }
 
@@ -240,6 +288,11 @@ private fun PebblePinManagerRoot(
                 pinComposerViewModel.startEditingPin(record)
                 selectedTab = AppTab.COMPOSE
             },
+            bottomBar = bottomNavigation,
+        )
+        AppTab.DEV -> DevModeRoute(
+            viewModel = devModeViewModel,
+            onOpenNotificationAccessSettings = onOpenNotificationAccessSettings,
             bottomBar = bottomNavigation,
         )
     }
