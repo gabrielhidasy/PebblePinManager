@@ -97,7 +97,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import xyz.hidasy.pebblepinmanager.data.SentPinRecord
-import xyz.hidasy.pebblepinmanager.domain.EventSource
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinDurationFormatter
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
@@ -550,9 +549,14 @@ private fun PinComposerCard(
                 }
             }
 
-            uiState.editingPinId?.let { editingId ->
+            uiState.editingPin?.let { editing ->
+                val editingLabel = if (editing.isAutoPin) {
+                    "Updating existing Auto-Pin ID: ${editing.id}"
+                } else {
+                    "Updating existing Pin ID: ${editing.id}"
+                }
                 Text(
-                    text = "Updating existing Pin ID: $editingId",
+                    text = editingLabel,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -1261,7 +1265,7 @@ private fun WatchHandoffDialog(
 }
 
 @Composable
-private fun FeedbackBanner(feedback: SendFeedback) {
+internal fun FeedbackBanner(feedback: SendFeedback) {
     val isSuccess = feedback is SendFeedback.Success
     val containerColor = if (isSuccess) {
         MaterialTheme.colorScheme.secondaryContainer
@@ -1442,13 +1446,8 @@ private fun RecentSentPinsSection(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            val sourceSuffix = if (record.source == EventSource.NOTIFICATION.name) {
-                                " • Auto (Notification)"
-                            } else {
-                                ""
-                            }
                             Text(
-                                text = "Pin ID: ${record.id} • ${pinIcon.label}$sourceSuffix",
+                                text = "Pin ID: ${record.id} • ${pinIcon.label}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

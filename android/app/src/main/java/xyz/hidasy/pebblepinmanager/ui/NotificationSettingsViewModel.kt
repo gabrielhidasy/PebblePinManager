@@ -11,25 +11,31 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import xyz.hidasy.pebblepinmanager.data.SentPinRepository
-import xyz.hidasy.pebblepinmanager.domain.EventSource
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
 import xyz.hidasy.pebblepinmanager.notifications.InstalledAppsProvider
 import xyz.hidasy.pebblepinmanager.notifications.NotificationAccessStatusChecker
 import xyz.hidasy.pebblepinmanager.notifications.NotificationRuleValidator
 import xyz.hidasy.pebblepinmanager.notifications.NotificationSettingsRepository
+import xyz.hidasy.pebblepinmanager.pebble.PinDeleteResult
+import xyz.hidasy.pebblepinmanager.pebble.TimelinePinSender
+import java.time.Clock
 
 class NotificationSettingsViewModel(
     private val settingsRepository: NotificationSettingsRepository,
     private val accessStatusChecker: NotificationAccessStatusChecker,
     private val installedAppsProvider: InstalledAppsProvider,
     private val sentPinRepository: SentPinRepository,
+    private val pinSender: TimelinePinSender,
     private val listenerConnectedFlow: Flow<Boolean> = flowOf(false),
+    private val clock: Clock = Clock.systemDefaultZone(),
+    private val onPinsChanged: (suspend () -> Unit)? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
         NotificationSettingsUiState(
             isNotificationAccessEnabled = accessStatusChecker.isNotificationAccessEnabled(),
+            zoneId = clock.zone,
         ),
     )
     val uiState: StateFlow<NotificationSettingsUiState> = _uiState.asStateFlow()
@@ -39,7 +45,7 @@ class NotificationSettingsViewModel(
     init {
         observeSettings()
         observeListenerConnection()
-        observeAutoPinCount()
+        observeAutoPins()
         refreshInstalledApps()
     }
 
@@ -73,11 +79,11 @@ class NotificationSettingsViewModel(
         }
     }
 
-    private fun observeAutoPinCount() {
+    private fun observeAutoPins() {
         viewModelScope.launch {
             sentPinRepository.observeSentPins().collect { pins ->
-                val count = pins.count { it.source == EventSource.NOTIFICATION.name }
-                _uiState.update { it.copy(autoPinCount = count) }
+                val autoPins = pins.filter { it.isAutoPin }
+                _uiState.update { it.copy(autoPins = autoPins) }
             }
         }
     }
@@ -286,6 +292,121 @@ class NotificationSettingsViewModel(
             settingsRepository.updateSettings { it.copy(defaultBackgroundColor = color?.hexCode) }
         }
     }
+
+    fun dismissPinActionFeedback() {
+        _uiState.update { it.copy(pinActionFeedback = null) }
+    }
+
+    fun deleteAutoPin(pinId: String) {
+        val current = _uiState.value
+        if (current.deletingPinId != null) return
+
+        val sanitizedId = pinId.trim()
+        if (sanitizedId.isEmpty()) return
+
+        val cachedTitle = current.autoPins.firstOrNull { it.id == sanitizedId }?.title
+
+        _uiState.update {
+            it.copy(
+                deletingPinId = sanitizedId,
+                pinActionFeedback = null,
+            )
+        }
+
+        viewModelScope.launch {
+            val resolvedTitle = cachedTitle ?: sentPinRepository.getPinById(sanitizedId)?.title
+            val displayName = resolvedTitle?.let { "\"$it\"" } ?: "Pin $sanitizedId"
+            val result = pinSender.deletePin(sanitizedId)
+
+            when (result) {
+                is PinDeleteResult.Success -> {
+                    sentPinRepository.deletePinRecord(sanitizedId)
+                    notifyPinsChanged()
+                    _uiState.update {
+                        it.copy(
+                            deletingPinId = null,
+                            pinActionFeedback = SendFeedback.Success(
+                                pinId = result.pinId,
+                                headline = "Auto-pin deleted from Pebble Timeline",
+                                details = "$displayName (${result.pinId}) was removed from your Pebble Timeline and local history.",
+                            ),
+                        )
+                    }
+                }
+
+                is PinDeleteResult.UnknownPin -> {
+                    sentPinRepository.deletePinRecord(sanitizedId)
+                    notifyPinsChanged()
+                    _uiState.update {
+                        it.copy(
+                            deletingPinId = null,
+                            pinActionFeedback = SendFeedback.Success(
+                                pinId = result.pinId,
+                                headline = "Auto-pin removed from history",
+                                details = "$displayName (${result.pinId}) was no longer present in the Pebble companion app and has been removed from local history.",
+                            ),
+                        )
+                    }
+                }
+
+                PinDeleteResult.NoPebbleApp -> {
+                    _uiState.update {
+                        it.copy(
+                            deletingPinId = null,
+                            pinActionFeedback = SendFeedback.Error(
+                                headline = "Pebble companion app not available",
+                                details = "Install or open the Core Devices Pebble app (v1.0.7.7+) or microPebble and make sure PebbleKit 2 is reachable.",
+                            ),
+                        )
+                    }
+                }
+
+                is PinDeleteResult.NoPermissions -> {
+                    _uiState.update {
+                        it.copy(
+                            deletingPinId = null,
+                            pinActionFeedback = SendFeedback.Error(
+                                headline = "Companion app permission denied",
+                                details = "The Pebble companion app rejected timeline delete access for watchapp UUID ${result.watchappUuid}. Verify the watchapp's package.json authorizes this Android package.",
+                            ),
+                        )
+                    }
+                }
+
+                PinDeleteResult.UnsupportedAction -> {
+                    _uiState.update {
+                        it.copy(
+                            deletingPinId = null,
+                            pinActionFeedback = SendFeedback.Error(
+                                headline = "Timeline deletion unsupported by installed Pebble app",
+                                details = "Update your Core Devices Pebble app or microPebble to a version supporting PebbleKit Android 2 timeline deletion.",
+                            ),
+                        )
+                    }
+                }
+
+                is PinDeleteResult.UnexpectedError -> {
+                    _uiState.update {
+                        it.copy(
+                            deletingPinId = null,
+                            pinActionFeedback = SendFeedback.Error(
+                                headline = "Failed to delete timeline pin",
+                                details = result.message,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun notifyPinsChanged() {
+        onPinsChanged?.let { callback ->
+            viewModelScope.launch {
+                runCatching { callback() }
+            }
+        }
+    }
 }
 
 class NotificationSettingsViewModelFactory(
@@ -293,7 +414,9 @@ class NotificationSettingsViewModelFactory(
     private val accessStatusChecker: NotificationAccessStatusChecker,
     private val installedAppsProvider: InstalledAppsProvider,
     private val sentPinRepository: SentPinRepository,
+    private val pinSender: TimelinePinSender,
     private val listenerConnectedFlow: Flow<Boolean>,
+    private val onPinsChanged: (suspend () -> Unit)? = null,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -305,7 +428,9 @@ class NotificationSettingsViewModelFactory(
             accessStatusChecker = accessStatusChecker,
             installedAppsProvider = installedAppsProvider,
             sentPinRepository = sentPinRepository,
+            pinSender = pinSender,
             listenerConnectedFlow = listenerConnectedFlow,
+            onPinsChanged = onPinsChanged,
         ) as T
     }
 }

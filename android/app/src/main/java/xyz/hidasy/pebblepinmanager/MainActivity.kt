@@ -62,7 +62,9 @@ class MainActivity : ComponentActivity() {
             accessStatusChecker = appContainer.notificationAccessStatusChecker,
             installedAppsProvider = appContainer.installedAppsProvider,
             sentPinRepository = appContainer.sentPinRepository,
+            pinSender = appContainer.pinSender,
             listenerConnectedFlow = PebbleNotificationListenerService.isListenerConnected,
+            onPinsChanged = { appContainer.watchPinSyncManager.syncRecentPins() },
         )
     }
 
@@ -234,6 +236,10 @@ private fun PebblePinManagerRoot(
         AppTab.NOTIFICATIONS -> NotificationSettingsRoute(
             viewModel = notificationSettingsViewModel,
             onOpenNotificationAccessSettings = onOpenNotificationAccessSettings,
+            onEditAutoPin = { record ->
+                pinComposerViewModel.startEditingPin(record)
+                selectedTab = AppTab.COMPOSE
+            },
             bottomBar = bottomNavigation,
         )
     }

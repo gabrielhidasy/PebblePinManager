@@ -25,6 +25,12 @@ data class SentPinRecord(
     val sourceKey: String? = null,
     val sentAtMillis: Long,
 ) {
+    val eventSource: EventSource
+        get() = runCatching { EventSource.valueOf(source) }.getOrDefault(EventSource.MANUAL)
+
+    val isAutoPin: Boolean
+        get() = eventSource == EventSource.NOTIFICATION
+
     fun toTimelineEvent(): TimelineEvent = TimelineEvent(
         id = id,
         title = title,
@@ -34,7 +40,7 @@ data class SentPinRecord(
         iconUri = iconUri,
         backgroundColor = backgroundColor,
         layoutType = runCatching { PinLayoutType.valueOf(layoutType) }.getOrDefault(PinLayoutType.GENERIC_PIN),
-        source = runCatching { EventSource.valueOf(source) }.getOrDefault(EventSource.MANUAL),
+        source = eventSource,
         sourceKey = sourceKey,
     )
 

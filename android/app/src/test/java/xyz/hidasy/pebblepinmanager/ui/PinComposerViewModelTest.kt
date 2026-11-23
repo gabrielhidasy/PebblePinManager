@@ -657,6 +657,106 @@ class PinComposerViewModelTest {
         advanceUntilIdle()
         assertEquals(2, syncTriggered)
     }
+
+    @Test
+    fun `recent sent pins exclude notification auto-pins while keeping manual pins`() = runTest {
+        val manualPin = SentPinRecord(
+            id = "ppm-manual-1",
+            title = "Dentist",
+            startTimeMillis = Instant.parse("2026-11-21T15:00:00Z").toEpochMilli(),
+            source = EventSource.MANUAL.name,
+            sentAtMillis = Instant.parse("2026-11-21T11:00:00Z").toEpochMilli(),
+        )
+        val autoPin = SentPinRecord(
+            id = "ppm-notif-1",
+            title = "Flight LH123",
+            description = "Gate B12",
+            startTimeMillis = Instant.parse("2026-11-21T18:00:00Z").toEpochMilli(),
+            source = EventSource.NOTIFICATION.name,
+            sourceKey = "0|com.example.flights|42|null|1000",
+            sentAtMillis = Instant.parse("2026-11-21T11:30:00Z").toEpochMilli(),
+        )
+        val repo = StubSentPinRepository(initialPins = listOf(autoPin, manualPin))
+        val vm = PinComposerViewModel(StubTimelinePinSender(), repo, fixedClock)
+        advanceUntilIdle()
+
+        assertEquals(listOf("ppm-manual-1"), vm.uiState.value.sentPins.map { it.id })
+        assertFalse(vm.uiState.value.sentPins.any { it.isAutoPin })
+    }
+
+    @Test
+    fun `editing an auto-pin in composer updates in place and preserves notification source`() = runTest {
+        val autoPin = SentPinRecord(
+            id = "ppm-notif-edit-1",
+            title = "Flight LH123",
+            description = "Gate B12",
+            startTimeMillis = Instant.parse("2026-11-21T18:00:00Z").toEpochMilli(),
+            iconUri = PinIcon.SCHEDULED_FLIGHT.uri,
+            backgroundColor = PinAccentColor.SKY.hexCode,
+            source = EventSource.NOTIFICATION.name,
+            sourceKey = "0|com.example.flights|42|null|1000",
+            sentAtMillis = Instant.parse("2026-11-21T11:30:00Z").toEpochMilli(),
+        )
+        val sender = StubTimelinePinSender()
+        val repo = StubSentPinRepository(initialPins = listOf(autoPin))
+        val vm = PinComposerViewModel(sender, repo, fixedClock)
+        advanceUntilIdle()
+
+        // Excluded from manual Recent Sent Pins before edit
+        assertTrue(vm.uiState.value.sentPins.isEmpty())
+
+        // Loaded into composer from Auto-Pins tab
+        vm.startEditingPin(autoPin)
+        assertTrue(vm.uiState.value.isEditing)
+        assertEquals("ppm-notif-edit-1", vm.uiState.value.editingPinId)
+        assertTrue(vm.uiState.value.editingPin?.isAutoPin == true)
+
+        vm.onTitleChange("Flight LH123 (Boarding)")
+        vm.onDescriptionChange("Gate C04")
+        vm.sendPin()
+        advanceUntilIdle()
+
+        val sent = sender.sentEvents.single()
+        assertEquals("ppm-notif-edit-1", sent.id)
+        assertEquals("Flight LH123 (Boarding)", sent.title)
+        assertEquals("Gate C04", sent.description)
+        assertEquals(EventSource.NOTIFICATION, sent.source)
+        assertEquals("0|com.example.flights|42|null|1000", sent.sourceKey)
+
+        // Remains persisted as NOTIFICATION and stays excluded from manual Recent Sent Pins
+        val stored = repo.getPinById("ppm-notif-edit-1")
+        assertNotNull(stored)
+        assertEquals(EventSource.NOTIFICATION.name, stored?.source)
+        assertEquals("0|com.example.flights|42|null|1000", stored?.sourceKey)
+        assertEquals("Flight LH123 (Boarding)", stored?.title)
+        assertTrue(vm.uiState.value.sentPins.isEmpty())
+        assertFalse(vm.uiState.value.isEditing)
+    }
+
+    @Test
+    fun `deleting currently edited auto-pin externally clears composer edit mode`() = runTest {
+        val autoPin = SentPinRecord(
+            id = "ppm-notif-ext-del",
+            title = "Delivery Arriving",
+            startTimeMillis = Instant.parse("2026-11-21T16:00:00Z").toEpochMilli(),
+            source = EventSource.NOTIFICATION.name,
+            sourceKey = "0|com.example.delivery|7|null|1000",
+            sentAtMillis = Instant.parse("2026-11-21T11:30:00Z").toEpochMilli(),
+        )
+        val repo = StubSentPinRepository(initialPins = listOf(autoPin))
+        val vm = PinComposerViewModel(StubTimelinePinSender(), repo, fixedClock)
+        advanceUntilIdle()
+
+        vm.startEditingPin(autoPin)
+        assertTrue(vm.uiState.value.isEditing)
+
+        repo.deletePinRecord("ppm-notif-ext-del")
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.isEditing)
+        assertNull(vm.uiState.value.editingPinId)
+        assertEquals("", vm.uiState.value.title)
+    }
 }
 
 private class StubTimelinePinSender(

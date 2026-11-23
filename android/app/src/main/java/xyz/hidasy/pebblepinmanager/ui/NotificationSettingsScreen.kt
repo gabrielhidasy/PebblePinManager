@@ -28,13 +28,17 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -56,6 +60,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,19 +71,24 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import xyz.hidasy.pebblepinmanager.data.SentPinRecord
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
+import xyz.hidasy.pebblepinmanager.domain.PinDurationFormatter
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
+import xyz.hidasy.pebblepinmanager.domain.TimelineTimestampFormatter
 import xyz.hidasy.pebblepinmanager.notifications.InstalledAppInfo
 
 @Composable
 fun NotificationSettingsRoute(
     viewModel: NotificationSettingsViewModel,
     onOpenNotificationAccessSettings: () -> Unit,
+    onEditAutoPin: (SentPinRecord) -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -111,6 +123,8 @@ fun NotificationSettingsRoute(
         onSaveParsingRules = viewModel::onSaveParsingRules,
         onDefaultIconSelected = viewModel::onDefaultIconSelected,
         onDefaultBackgroundColorSelected = viewModel::onDefaultBackgroundColorSelected,
+        onEditAutoPin = onEditAutoPin,
+        onDeleteAutoPin = viewModel::deleteAutoPin,
         bottomBar = bottomBar,
         modifier = modifier,
     )
@@ -140,10 +154,17 @@ fun NotificationSettingsScreen(
     onSaveParsingRules: () -> Unit,
     onDefaultIconSelected: (PinIcon) -> Unit,
     onDefaultBackgroundColorSelected: (PinAccentColor?) -> Unit,
+    onEditAutoPin: (SentPinRecord) -> Unit = {},
+    onDeleteAutoPin: (String) -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
+    var pinPendingDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    val pinPendingDelete = pinPendingDeleteId?.let { pendingId ->
+        uiState.autoPins.firstOrNull { it.id == pendingId }
+    }
+    val isDeletingPin = uiState.deletingPinId != null
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -189,6 +210,13 @@ fun NotificationSettingsScreen(
                 allowedCount = uiState.allowedCount,
                 autoPinCount = uiState.autoPinCount,
                 onOpenSettings = onOpenNotificationAccessSettings,
+            )
+
+            RecentAutoPinsSection(
+                uiState = uiState,
+                isBusy = isDeletingPin,
+                onEditAutoPin = onEditAutoPin,
+                onRequestDeleteAutoPin = { record -> pinPendingDeleteId = record.id },
             )
 
             AutoPinBehaviorCard(
@@ -241,6 +269,214 @@ fun NotificationSettingsScreen(
                 onDefaultIconSelected = onDefaultIconSelected,
                 onDefaultBackgroundColorSelected = onDefaultBackgroundColorSelected,
             )
+        }
+    }
+
+    pinPendingDelete?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { pinPendingDeleteId = null },
+            title = { Text("Delete Auto-Pin?") },
+            text = {
+                Text(
+                    "Remove \"${pending.title}\" (${pending.id}) from your Pebble Timeline and recent auto-pin history?",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pinPendingDeleteId = null
+                        onDeleteAutoPin(pending.id)
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pinPendingDeleteId = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun RecentAutoPinsSection(
+    uiState: NotificationSettingsUiState,
+    isBusy: Boolean,
+    onEditAutoPin: (SentPinRecord) -> Unit,
+    onRequestDeleteAutoPin: (SentPinRecord) -> Unit,
+) {
+    val autoPins = uiState.autoPins
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "Recent Auto-Pins (${autoPins.size})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+
+            uiState.pinActionFeedback?.let { feedback ->
+                FeedbackBanner(feedback = feedback)
+            }
+
+            if (autoPins.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.NotificationsActive,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Text(
+                        text = "No auto-created pins yet",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "Pins generated from allowlisted notifications will appear here so you can review, edit, or delete them.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+
+            autoPins.take(10).forEachIndexed { index, record ->
+                if (index > 0) {
+                    HorizontalDivider()
+                }
+                val pinIcon = PinIcon.fromUri(record.iconUri)
+                val accentColor = parseComposeHexColor(record.backgroundColor)
+                val timestampText = TimelineTimestampFormatter.formatLocalDateTimeWithZone(
+                    epochMillis = record.startTimeMillis,
+                    zoneId = uiState.zoneId,
+                )
+                val durationSuffix = record.durationMinutes
+                    ?.let { " • ${PinDurationFormatter.formatMinutes(it)}" }
+                    .orEmpty()
+                val isCurrentlyDeleting = record.id == uiState.deletingPinId
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    accentColor ?: MaterialTheme.colorScheme.surfaceVariant,
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = pinIcon.toImageVector(),
+                                contentDescription = pinIcon.label,
+                                tint = accentColor?.contrastingCheckColor()
+                                    ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = record.title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            if (!record.description.isNullOrBlank()) {
+                                Text(
+                                    text = record.description,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Text(
+                                text = "$timestampText$durationSuffix",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = "Pin ID: ${record.id} • ${pinIcon.label}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = uiState.formatAutoPinSource(record),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedButton(
+                            onClick = { onEditAutoPin(record) },
+                            enabled = !isBusy,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Edit", maxLines = 1)
+                        }
+                        TextButton(
+                            onClick = { onRequestDeleteAutoPin(record) },
+                            enabled = !isBusy,
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
+                        ) {
+                            if (isCurrentlyDeleting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("Deleting...", maxLines = 1)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("Delete", maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

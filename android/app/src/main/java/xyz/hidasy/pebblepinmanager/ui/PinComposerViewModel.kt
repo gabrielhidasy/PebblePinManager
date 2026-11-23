@@ -70,8 +70,32 @@ class PinComposerViewModel(
 
     private fun observeSentPins() {
         viewModelScope.launch {
-            repository.observeSentPins().collect { pins ->
-                _uiState.update { it.copy(sentPins = pins) }
+            repository.observeSentPins().collect { allPins ->
+                val manualPins = allPins.filterNot { it.isAutoPin }
+                _uiState.update { state ->
+                    val editingStillExists = state.editingPin == null ||
+                        allPins.any { it.id == state.editingPin.id }
+                    if (!editingStillExists && !state.isSending) {
+                        val resetTime = defaultZonedDateTime()
+                        state.copy(
+                            sentPins = manualPins,
+                            title = "",
+                            description = "",
+                            selectedDate = resetTime.toLocalDate(),
+                            selectedTime = resetTime.toLocalTime(),
+                            selectedIcon = PinIcon.DEFAULT,
+                            durationInput = "",
+                            selectedBackgroundColor = null,
+                            editingPin = null,
+                            titleError = null,
+                            descriptionError = null,
+                            timeError = null,
+                            durationError = null,
+                        )
+                    } else {
+                        state.copy(sentPins = manualPins)
+                    }
+                }
             }
         }
     }

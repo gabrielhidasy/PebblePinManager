@@ -1,9 +1,12 @@
 package xyz.hidasy.pebblepinmanager.ui
 
+import xyz.hidasy.pebblepinmanager.data.SentPinRecord
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
 import xyz.hidasy.pebblepinmanager.notifications.InstalledAppInfo
 import xyz.hidasy.pebblepinmanager.notifications.NotificationRuleSettings
+import xyz.hidasy.pebblepinmanager.notifications.NotificationRuleValidator
+import java.time.ZoneId
 
 data class NotificationSettingsUiState(
     val isNotificationAccessEnabled: Boolean = false,
@@ -23,8 +26,14 @@ data class NotificationSettingsUiState(
     val timeRegexInput: String = "",
     val timeRegexError: String? = null,
     val rulesSavedMessage: String? = null,
-    val autoPinCount: Int = 0,
+    val autoPins: List<SentPinRecord> = emptyList(),
+    val zoneId: ZoneId = ZoneId.systemDefault(),
+    val deletingPinId: String? = null,
+    val pinActionFeedback: SendFeedback? = null,
 ) {
+    val autoPinCount: Int
+        get() = autoPins.size
+
     val allowedCount: Int
         get() = settings.allowedPackages.size
 
@@ -72,4 +81,35 @@ data class NotificationSettingsUiState(
             titleRegexInput.trim() != settings.titleRegexPattern.trim() ||
             descriptionRegexInput.trim() != settings.descriptionRegexPattern.trim() ||
             timeRegexInput.trim() != settings.timeRegexPattern.trim()
+
+    fun formatAutoPinSource(record: SentPinRecord): String {
+        val rawKey = record.sourceKey?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return "Source: Notification"
+        val packageName = extractSourcePackage(rawKey)
+        val appLabel = packageName?.let { pkg ->
+            installedApps.firstOrNull { it.packageName == pkg }?.appName
+        }
+        return if (appLabel != null) {
+            "Source: $appLabel • $rawKey"
+        } else {
+            "Source: $rawKey"
+        }
+    }
+
+    companion object {
+        internal fun extractSourcePackage(sourceKey: String): String? {
+            val trimmed = sourceKey.trim()
+            if (trimmed.isEmpty()) return null
+            val parts = trimmed.split('|')
+            if (parts.size >= 2 && parts[0].toIntOrNull() != null &&
+                NotificationRuleValidator.validatePackageName(parts[1]) == null
+            ) {
+                return parts[1]
+            }
+            if (parts.size >= 2 && NotificationRuleValidator.validatePackageName(parts[0]) == null) {
+                return parts[0]
+            }
+            return trimmed.takeIf { NotificationRuleValidator.validatePackageName(it) == null }
+        }
+    }
 }

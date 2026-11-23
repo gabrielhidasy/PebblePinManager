@@ -13,6 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import xyz.hidasy.pebblepinmanager.data.SentPinRecord
 import xyz.hidasy.pebblepinmanager.data.SentPinRepository
+import xyz.hidasy.pebblepinmanager.domain.EventSource
 import xyz.hidasy.pebblepinmanager.domain.TimelineEvent
 import java.time.Clock
 import java.time.Instant
@@ -441,6 +442,67 @@ class WatchPinSyncManagerTest {
             PebbleDictionaryItem.Text("Open app on phone"),
             feedback[WatchAppProtocol.KEY_STATUS_TEXT],
         )
+    }
+
+    @Test
+    fun `syncRecentPins includes both manual and auto-created pins and rescheduling preserves notification source`() = runTest {
+        val manualStart = Instant.parse("2026-11-22T14:00:00Z").toEpochMilli()
+        val autoStart = Instant.parse("2026-11-22T16:00:00Z").toEpochMilli()
+        val repo = InMemorySentPinRepository(
+            initial = listOf(
+                SentPinRecord(
+                    id = "ppm-manual-1",
+                    title = "Dentist",
+                    startTimeMillis = manualStart,
+                    source = EventSource.MANUAL.name,
+                    sentAtMillis = 1_000L,
+                ),
+                SentPinRecord(
+                    id = "ppm-notif-1",
+                    title = "Flight LH123",
+                    description = "Gate B12",
+                    startTimeMillis = autoStart,
+                    source = EventSource.NOTIFICATION.name,
+                    sourceKey = "0|com.example.flights|42|null|1000",
+                    sentAtMillis = 2_000L,
+                ),
+            ),
+        )
+        val pinSender = FakeTimelinePinSender()
+        val messenger = RecordingWatchAppMessenger()
+        val manager = WatchPinSyncManager(
+            pinSender = pinSender,
+            repository = repo,
+            messenger = messenger,
+            onOpenPhoneUi = { PhoneUiOpenResult.OpenedDirect(DirectLaunchReason.APP_IN_FOREGROUND) },
+            clock = fixedClock,
+        )
+
+        val syncResult = manager.syncRecentPins(targetWatch = watch)
+        assertEquals(WatchSyncResult.Synced(2), syncResult)
+        assertEquals(
+            listOf("ppm-notif-1", "ppm-manual-1"),
+            messenger.sentMessages.drop(1).map {
+                (it.data[WatchAppProtocol.KEY_PIN_ID] as PebbleDictionaryItem.Text).value
+            },
+        )
+
+        val outcome = manager.handleWatchMessage(
+            data = mapOf(
+                WatchAppProtocol.KEY_MSG_TYPE to PebbleDictionaryItem.UInt8(WatchAppProtocol.MSG_WATCH_REQ_RESCHEDULE),
+                WatchAppProtocol.KEY_PIN_ID to PebbleDictionaryItem.Text("ppm-notif-1"),
+                WatchAppProtocol.KEY_DELTA_MINUTES to PebbleDictionaryItem.Int32(30),
+                WatchAppProtocol.KEY_DELTA_DAYS to PebbleDictionaryItem.Int32(0),
+            ),
+            watch = watch,
+        )
+
+        val expectedShifted = Instant.parse("2026-11-22T16:30:00Z").toEpochMilli()
+        assertEquals(WatchHandleOutcome.PinRescheduled("ppm-notif-1", expectedShifted), outcome)
+        val updated = repo.getPinById("ppm-notif-1")!!
+        assertEquals(EventSource.NOTIFICATION.name, updated.source)
+        assertEquals("0|com.example.flights|42|null|1000", updated.sourceKey)
+        assertEquals(expectedShifted, updated.startTimeMillis)
     }
 }
 
