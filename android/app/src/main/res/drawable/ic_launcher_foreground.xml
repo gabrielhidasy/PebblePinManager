@@ -1,14 +1,103 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Minimal smartwatch bezel + timeline pin silhouette -->
+
+    <!-- Smartphone (back-left) with transparent cutout halo separating it cleanly from the watch -->
     <path
-        android:fillColor="#FF4700"
-        android:pathData="M34,26h40c4.4,0 8,3.6 8,8v40c0,4.4 -3.6,8 -8,8H34c-4.4,0 -8,-3.6 -8,-8V34c0,-4.4 3.6,-8 8,-8z" />
+        android:fillColor="#FFDCE6F0"
+        android:pathData="M30,34 L45,34 A4.5,4.5 0 0,1 48.83,36.13 A9,9 0 0,0 45,43.5 L45,64.5 A9,9 0 0,0 48.83,71.87 A4.5,4.5 0 0,1 45,74 L30,74 A4.5,4.5 0 0,1 25.5,69.5 L25.5,38.5 A4.5,4.5 0 0,1 30,34 Z" />
+
+    <!-- Smartphone dark screen -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,36c-7.7,0 -14,6.3 -14,14c0,10.5 14,22 14,22s14,-11.5 14,-22c0,-7.7 -6.3,-14 -14,-14zM54,55c-2.8,0 -5,-2.2 -5,-5s2.2,-5 5,-5s5,2.2 5,5s-2.2,5 -5,5z" />
+        android:fillColor="#FF1C2630"
+        android:pathData="M30.5,39.2 L46.09,39.2 A9,9 0 0,0 45,43.5 L45,64.5 A9,9 0 0,0 46.09,68.8 L30.5,68.8 A1.8,1.8 0 0,1 28.7,67 L28.7,41 A1.8,1.8 0 0,1 30.5,39.2 Z" />
+
+    <!-- Smartphone speaker pill & bottom navigation bar -->
+    <path
+        android:fillColor="#FF7D92A6"
+        android:pathData="M35.2,36 h4.8 a0.7,0.7 0 0,1 0,1.4 h-4.8 a0.7,0.7 0 0,1 0,-1.4 Z" />
+    <path
+        android:fillColor="#FF7D92A6"
+        android:pathData="M34.9,70.8 h5.4 a0.7,0.7 0 0,1 0,1.4 h-5.4 a0.7,0.7 0 0,1 0,-1.4 Z" />
+
+    <!-- Smartphone notification card & timeline pin lines -->
+    <path
+        android:fillColor="#FF4FD1C5"
+        android:pathData="M33,42.8 h7.9 a1.8,1.8 0 0,1 1.8,1.8 v1.6 a1.8,1.8 0 0,1 -1.8,1.8 h-7.9 a1.8,1.8 0 0,1 -1.8,-1.8 v-1.6 a1.8,1.8 0 0,1 1.8,-1.8 Z" />
+    <path
+        android:fillColor="#FF7C94AA"
+        android:pathData="M32.7,50.8 h7.2 a1.5,1.5 0 0,1 0,3 h-7.2 a1.5,1.5 0 0,1 0,-3 Z" />
+    <path
+        android:fillColor="#FF52687C"
+        android:pathData="M32.7,56.4 h5 a1.5,1.5 0 0,1 0,3 h-5 a1.5,1.5 0 0,1 0,-3 Z" />
+
+    <!-- Pebble watch straps (top & bottom) with subtle lug shading -->
+    <path
+        android:fillColor="#FF5A6F82"
+        android:pathData="M58,26.5 h11 c1.8,0 3,1.2 3,3 v7.5 h-17 v-7.5 c0,-1.8 1.2,-3 3,-3 Z" />
+    <path
+        android:fillColor="#FF384958"
+        android:pathData="M55,34.2 h17 v2.8 h-17 Z" />
+    <path
+        android:fillColor="#FF5A6F82"
+        android:pathData="M55,71 h17 v7.5 c0,1.8 -1.2,3 -3,3 h-11 c-1.8,0 -3,-1.2 -3,-3 Z" />
+    <path
+        android:fillColor="#FF384958"
+        android:pathData="M55,71 h17 v2.8 h-17 Z" />
+
+    <!-- Iconic Pebble 3 right-edge buttons (Up, Select, Down) -->
+    <path
+        android:fillColor="#FFDCE6F0"
+        android:pathData="M78.8,42.8 h2.3 a1.4,1.4 0 0,1 1.4,1.4 v2 a1.4,1.4 0 0,1 -1.4,1.4 h-2.3 Z" />
+    <path
+        android:fillColor="#FFDCE6F0"
+        android:pathData="M78.8,51.1 h2.6 a1.4,1.4 0 0,1 1.4,1.4 v3 a1.4,1.4 0 0,1 -1.4,1.4 h-2.6 Z" />
+    <path
+        android:fillColor="#FFDCE6F0"
+        android:pathData="M78.8,60.4 h2.3 a1.4,1.4 0 0,1 1.4,1.4 v2 a1.4,1.4 0 0,1 -1.4,1.4 h-2.3 Z" />
+
+    <!-- Pebble smartwatch body (vibrant Pebble Coral gradient) -->
+    <path android:pathData="M54.3,37 h18.4 a6.8,6.8 0 0,1 6.8,6.8 v20.4 a6.8,6.8 0 0,1 -6.8,6.8 h-18.4 a6.8,6.8 0 0,1 -6.8,-6.8 v-20.4 a6.8,6.8 0 0,1 6.8,-6.8 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="79.5"
+                android:endY="71"
+                android:startX="47.5"
+                android:startY="37"
+                android:type="linear">
+                <item
+                    android:color="#FFFF6624"
+                    android:offset="0.0" />
+                <item
+                    android:color="#FFE53A00"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Subtle inner display rim -->
+    <path
+        android:pathData="M54.8,39.8 h17.4 a4.5,4.5 0 0,1 4.5,4.5 v19.4 a4.5,4.5 0 0,1 -4.5,4.5 h-17.4 a4.5,4.5 0 0,1 -4.5,-4.5 v-19.4 a4.5,4.5 0 0,1 4.5,-4.5 Z"
+        android:strokeAlpha="0.24"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.2" />
+
+    <!-- Bold white notification bell on watch display -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M63.5,44.6 c-0.95,0 -1.65,0.72 -1.65,1.65 v0.58 c-3.1,0.72 -5.35,3.45 -5.35,6.82 v3.75 l-1.75,1.75 v1.05 h17.5 v-1.05 l-1.75,-1.75 v-3.75 c0,-3.37 -2.25,-6.1 -5.35,-6.82 v-0.58 c0,-0.93 -0.7,-1.65 -1.65,-1.65 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M60.85,61.3 c0,1.46 1.19,2.65 2.65,2.65 s2.65,-1.19 2.65,-2.65 h-5.3 Z" />
+
+    <!-- Teal notification indicator badge -->
+    <path
+        android:fillColor="#FF4FD1C5"
+        android:pathData="M70.8,43.7 a3.1,3.1 0 1,1 0,6.2 a3.1,3.1 0 1,1 0,-6.2 Z"
+        android:strokeColor="#FFEC470B"
+        android:strokeWidth="1.3" />
 </vector>

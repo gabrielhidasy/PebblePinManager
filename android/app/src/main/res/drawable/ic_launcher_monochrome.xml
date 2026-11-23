@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Smartphone shell with screen cut out and clean separation gap from watch -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M30,34 L45,34 A4.5,4.5 0 0,1 48.83,36.13 A9,9 0 0,0 45,43.5 L45,64.5 A9,9 0 0,0 48.83,71.87 A4.5,4.5 0 0,1 45,74 L30,74 A4.5,4.5 0 0,1 25.5,69.5 L25.5,38.5 A4.5,4.5 0 0,1 30,34 Z M30.5,39.2 L46.09,39.2 A9,9 0 0,0 45,43.5 L45,64.5 A9,9 0 0,0 46.09,68.8 L30.5,68.8 A1.8,1.8 0 0,1 28.7,67 L28.7,41 A1.8,1.8 0 0,1 30.5,39.2 Z" />
+
+    <!-- Smartphone notification card & timeline bars -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M33,43.2 h7.8 a1.6,1.6 0 0,1 1.6,1.6 v1.6 a1.6,1.6 0 0,1 -1.6,1.6 h-7.8 a1.6,1.6 0 0,1 -1.6,-1.6 v-1.6 a1.6,1.6 0 0,1 1.6,-1.6 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M32.8,51 h6.6 a1.4,1.4 0 0,1 0,2.8 h-6.6 a1.4,1.4 0 0,1 0,-2.8 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M32.8,56.4 h4.4 a1.4,1.4 0 0,1 0,2.8 h-4.4 a1.4,1.4 0 0,1 0,-2.8 Z" />
+
+    <!-- Pebble watch straps (separated slightly from bezel for monochrome legibility) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M58,26.5 h11 c1.8,0 3,1.2 3,3 v5.8 h-17 v-5.8 c0,-1.8 1.2,-3 3,-3 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M55,72.7 h17 v5.8 c0,1.8 -1.2,3 -3,3 h-11 c-1.8,0 -3,-1.2 -3,-3 Z" />
+
+    <!-- Pebble 3 side buttons -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M80.5,43 h1.6 a1.2,1.2 0 0,1 1.2,1.2 v2.2 a1.2,1.2 0 0,1 -1.2,1.2 h-1.6 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M80.5,51.2 h1.9 a1.2,1.2 0 0,1 1.2,1.2 v3.2 a1.2,1.2 0 0,1 -1.2,1.2 h-1.9 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M80.5,60.4 h1.6 a1.2,1.2 0 0,1 1.2,1.2 v2.2 a1.2,1.2 0 0,1 -1.2,1.2 h-1.6 Z" />
+
+    <!-- Pebble watch body with notification bell cleanly cut out -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M54.3,37 h18.4 a6.8,6.8 0 0,1 6.8,6.8 v20.4 a6.8,6.8 0 0,1 -6.8,6.8 h-18.4 a6.8,6.8 0 0,1 -6.8,-6.8 v-20.4 a6.8,6.8 0 0,1 6.8,-6.8 Z M63.5,44.6 c-0.95,0 -1.65,0.72 -1.65,1.65 v0.58 c-3.1,0.72 -5.35,3.45 -5.35,6.82 v3.75 l-1.75,1.75 v1.05 h17.5 v-1.05 l-1.75,-1.75 v-3.75 c0,-3.37 -2.25,-6.1 -5.35,-6.82 v-0.58 c0,-0.93 -0.7,-1.65 -1.65,-1.65 Z M60.85,61.3 c0,1.46 1.19,2.65 2.65,2.65 s2.65,-1.19 2.65,-2.65 h-5.3 Z" />
+</vector>
