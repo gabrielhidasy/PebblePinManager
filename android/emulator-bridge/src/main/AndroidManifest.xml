@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".EmulatorBridgeApp"
@@ -39,6 +40,19 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="xyz.hidasy.pebblepinmanager.emulatorbridge.CONFIGURE" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+            Allows Emulator E2E scripts to post and cancel real high-priority Android notifications
+            from a separate package so PebbleNotificationListenerService can be exercised end-to-end.
+        -->
+        <receiver
+            android:name=".DemoNotificationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="xyz.hidasy.pebblepinmanager.emulatorbridge.POST_NOTIFICATION" />
+                <action android:name="xyz.hidasy.pebblepinmanager.emulatorbridge.CANCEL_NOTIFICATION" />
             </intent-filter>
         </receiver>
 

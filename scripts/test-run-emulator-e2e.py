@@ -291,6 +291,114 @@ class RunEmulatorE2ETests(unittest.TestCase):
             self.assertFalse(ui_vid_stats["isBlank"])
             self.assertEqual(ui_vid_stats["nonBlankSamples"], ui_vid_stats["samplesChecked"])
 
+    def test_demo_notification_arg_builders_and_shell_quoting(self) -> None:
+        args = e2e.build_broadcast_post_notification_args(
+            notif_id=2002,
+            tag="demo-flight",
+            title="Flight DL123 Boarding",
+            text="Gate B12 departs in 15 min",
+            big_text="Gate B12 departs in 15 min - Terminal 2",
+        )
+        self.assertIn(e2e.BRIDGE_POST_NOTIFICATION_ACTION, args)
+        self.assertIn(e2e.BRIDGE_NOTIFICATION_RECEIVER, args)
+        self.assertIn("Flight DL123 Boarding", args)
+        self.assertIn("Gate B12 departs in 15 min - Terminal 2", args)
+
+        cancel_single = e2e.build_broadcast_cancel_notification_args(notif_id=2001, tag="demo-promo")
+        self.assertIn(e2e.BRIDGE_CANCEL_NOTIFICATION_ACTION, cancel_single)
+        self.assertIn("2001", cancel_single)
+        self.assertIn("demo-promo", cancel_single)
+
+        cancel_all = e2e.build_broadcast_cancel_notification_args(cancel_all=True)
+        self.assertIn("cancel_all", cancel_all)
+        self.assertIn("true", cancel_all)
+
+        fallback_args = e2e.build_shell_post_notification_args(
+            tag="demo-flight",
+            title="Flight DL123 Boarding",
+            text="Gate B12 departs in 15 min",
+            big_text="Gate B12 departs in 15 min - Terminal 2",
+        )
+        self.assertEqual(
+            fallback_args,
+            [
+                "cmd",
+                "notification",
+                "post",
+                "-S",
+                "bigtext",
+                "-t",
+                "Flight DL123 Boarding",
+                "demo-flight",
+                "Gate B12 departs in 15 min - Terminal 2",
+            ],
+        )
+
+        # Verify shell_quoted properly quotes arguments with spaces into a single shell command
+        captured_calls: list[tuple[str, ...]] = []
+
+        class RecordingAdbDriver(e2e.AdbDriver):
+            def run(self, *run_args: str, timeout: int = 60, check: bool = True):
+                captured_calls.append(run_args)
+                return subprocess.CompletedProcess(list(run_args), 0, stdout="", stderr="")
+
+        rec = RecordingAdbDriver()
+        e2e.post_demo_notification(
+            rec,
+            use_bridge=True,
+            notif_id=2002,
+            tag="demo-flight",
+            title="Flight DL123 Boarding",
+            text="Gate B12 departs in 15 min",
+        )
+        self.assertEqual(len(captured_calls), 1)
+        self.assertEqual(captured_calls[0][0], "shell")
+        self.assertIn("'Flight DL123 Boarding'", captured_calls[0][1])
+        self.assertIn("'Gate B12 departs in 15 min'", captured_calls[0][1])
+
+    def test_write_summary_lists_manual_and_auto_pins_videos(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pebble-e2e-summary-") as tmp:
+            out_dir = pathlib.Path(tmp)
+            report = {
+                "platform": "emery",
+                "status": "passed",
+                "assertions": [
+                    {"name": "pin_sent_over_pebblekit2", "passed": True, "details": "ok"},
+                    {"name": "auto_pin_flight_created", "passed": True, "details": "ok"},
+                ],
+                "video": {
+                    "width": 1280,
+                    "height": 720,
+                    "codec": "h264",
+                    "durationSeconds": 40.5,
+                    "sizeBytes": 512 * 1024,
+                },
+                "videos": [
+                    {
+                        "scenario": "manual-pins",
+                        "label": "Manual Pins",
+                        "width": 1280,
+                        "height": 720,
+                        "codec": "h264",
+                        "durationSeconds": 40.5,
+                        "sizeBytes": 512 * 1024,
+                    },
+                    {
+                        "scenario": "auto-pins",
+                        "label": "Auto-Pins",
+                        "width": 1280,
+                        "height": 720,
+                        "codec": "h264",
+                        "durationSeconds": 48.2,
+                        "sizeBytes": 640 * 1024,
+                    },
+                ],
+            }
+            summary_path = e2e.write_summary(out_dir, [report])
+            text = summary_path.read_text(encoding="utf-8")
+            self.assertIn("| `emery` | Manual Pins | **PASSED** | 2/2 | `1280x720` (h264) | 40.5s | 512 KB |", text)
+            self.assertIn("| `emery` | Auto-Pins | **PASSED** | 2/2 | `1280x720` (h264) | 48.2s | 640 KB |", text)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

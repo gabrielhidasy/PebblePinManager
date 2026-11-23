@@ -15,7 +15,13 @@ Runs the complete automated user journey across BOTH emulators simultaneously:
        - Edits the pin in Android ("Updated Dentist Visit") & verifies update on Pebble
        - Deletes the pin in Android (with dialog confirmation) & verifies removal
   5. Asserts UI state, PebbleKit2 bridge event payloads, and Pebble screen transitions.
-  6. Renders a playable side-by-side 1280x720 MP4 demo video + poster PNG + JSON report.
+  6. Renders the first side-by-side 1280x720 MP4 demo video (`demo-<platform>.mp4`) + poster PNG.
+  7. Starts a second synchronized recording (`demo-<platform>-auto-pins.mp4`) exploring Auto-Pins:
+       - Opens the Auto-Pins tab, launches Android Notification Access Settings, and grants access
+       - Allowlists the demo notification source app, configures include/exclude keywords & accent color
+       - Sends live incoming notifications (an excluded promo ignored + Flight & Delivery notifications
+         with relative event-time extraction) and verifies the resulting auto-pins on Android & Pebble
+  8. Writes the JSON report + Markdown summary covering both videos.
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ import json
 import math
 import os
 import re
+import shlex
 import signal
 import socket
 import subprocess
@@ -45,6 +52,12 @@ APP_ACTIVITY = "xyz.hidasy.pebblepinmanager.MainActivity"
 BRIDGE_PACKAGE = "xyz.hidasy.pebblepinmanager.emulatorbridge"
 BRIDGE_RECEIVER = f"{BRIDGE_PACKAGE}/.BridgeConfigReceiver"
 BRIDGE_CONFIG_ACTION = f"{BRIDGE_PACKAGE}.CONFIGURE"
+BRIDGE_NOTIFICATION_RECEIVER = f"{BRIDGE_PACKAGE}/.DemoNotificationReceiver"
+BRIDGE_POST_NOTIFICATION_ACTION = f"{BRIDGE_PACKAGE}.POST_NOTIFICATION"
+BRIDGE_CANCEL_NOTIFICATION_ACTION = f"{BRIDGE_PACKAGE}.CANCEL_NOTIFICATION"
+NOTIFICATION_LISTENER_COMPONENT = (
+    f"{APP_PACKAGE}/xyz.hidasy.pebblepinmanager.notifications.PebbleNotificationListenerService"
+)
 WATCHAPP_UUID = "e4b7c3a1-8f2d-4c6e-9a51-7b3d2e8f1042"
 
 BOUNDS_RE = re.compile(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]")
@@ -121,6 +134,10 @@ class AdbDriver:
 
     def shell(self, *args: str, timeout: int = 60, check: bool = True) -> str:
         return self.run("shell", *args, timeout=timeout, check=check).stdout
+
+    def shell_quoted(self, *args: str, timeout: int = 60, check: bool = True) -> str:
+        cmd_str = " ".join(shlex.quote(arg) for arg in args)
+        return self.run("shell", cmd_str, timeout=timeout, check=check).stdout
 
     def screen_size(self) -> tuple[int, int]:
         if self._screen_size is None:
@@ -487,11 +504,17 @@ class PebbleFrameRecorder:
 class AndroidScreenRecorder:
     """Records Android screen via `screenrecord`, automatically falling back to `screencap` polling."""
 
-    def __init__(self, adb: AdbDriver, work_dir: Path, t0: float) -> None:
+    def __init__(
+        self,
+        adb: AdbDriver,
+        work_dir: Path,
+        t0: float,
+        remote_mp4: str = "/sdcard/pebblepin-e2e-demo.mp4",
+    ) -> None:
         self.adb = adb
         self.work_dir = work_dir
         self.t0 = t0
-        self.remote_mp4 = "/sdcard/pebblepin-e2e-demo.mp4"
+        self.remote_mp4 = remote_mp4
         self.local_mp4 = work_dir / "android-screenrecord.mp4"
         self.frames_dir = work_dir / "android-frames"
         self.timestamps_file = work_dir / "android-timestamps.json"
@@ -594,6 +617,173 @@ def wait_for_bridge_health(port: int, timeout: float = 15.0) -> dict[str, Any]:
             pass
         time.sleep(0.3)
     raise RuntimeError(f"Host Pebble bridge at {url} did not become healthy within {timeout}s")
+
+
+def wait_for_bridge_events(
+    port: int,
+    predicate: Any,
+    timeout: float = 20.0,
+    poll_interval: float = 0.5,
+) -> dict[str, Any]:
+    deadline = time.time() + timeout
+    last_payload: dict[str, Any] = {"events": [], "activePinIds": []}
+    while time.time() < deadline:
+        try:
+            last_payload = http_get_json(f"http://127.0.0.1:{port}/events", timeout=3.0)
+            if predicate(last_payload):
+                return last_payload
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+        time.sleep(poll_interval)
+    return last_payload
+
+
+def build_broadcast_post_notification_args(
+    *,
+    notif_id: int,
+    title: str,
+    text: str,
+    tag: str | None = None,
+    big_text: str | None = None,
+    sub_text: str | None = None,
+    ongoing: bool = False,
+) -> list[str]:
+    args = [
+        "am",
+        "broadcast",
+        "-a",
+        BRIDGE_POST_NOTIFICATION_ACTION,
+        "-n",
+        BRIDGE_NOTIFICATION_RECEIVER,
+        "--ei",
+        "id",
+        str(notif_id),
+        "--es",
+        "title",
+        title,
+        "--es",
+        "text",
+        text,
+        "--ez",
+        "ongoing",
+        "true" if ongoing else "false",
+    ]
+    if tag:
+        args.extend(["--es", "tag", tag])
+    if big_text:
+        args.extend(["--es", "big_text", big_text])
+    if sub_text:
+        args.extend(["--es", "sub_text", sub_text])
+    return args
+
+
+def build_broadcast_cancel_notification_args(
+    *,
+    notif_id: int | None = None,
+    tag: str | None = None,
+    cancel_all: bool = False,
+) -> list[str]:
+    args = [
+        "am",
+        "broadcast",
+        "-a",
+        BRIDGE_CANCEL_NOTIFICATION_ACTION,
+        "-n",
+        BRIDGE_NOTIFICATION_RECEIVER,
+    ]
+    if cancel_all:
+        args.extend(["--ez", "cancel_all", "true"])
+    else:
+        if notif_id is not None:
+            args.extend(["--ei", "id", str(notif_id)])
+        if tag:
+            args.extend(["--es", "tag", tag])
+    return args
+
+
+def build_shell_post_notification_args(
+    *,
+    tag: str,
+    title: str,
+    text: str,
+    big_text: str | None = None,
+) -> list[str]:
+    body = big_text or text
+    return [
+        "cmd",
+        "notification",
+        "post",
+        "-S",
+        "bigtext",
+        "-t",
+        title,
+        tag,
+        body,
+    ]
+
+
+def bridge_supports_demo_notifications(adb: AdbDriver) -> bool:
+    out = adb.shell(
+        "cmd",
+        "package",
+        "resolve-receiver",
+        "--brief",
+        "-a",
+        BRIDGE_POST_NOTIFICATION_ACTION,
+        check=False,
+        timeout=15,
+    )
+    return BRIDGE_PACKAGE in out
+
+
+def post_demo_notification(
+    adb: AdbDriver,
+    *,
+    use_bridge: bool,
+    notif_id: int,
+    tag: str,
+    title: str,
+    text: str,
+    big_text: str | None = None,
+    sub_text: str | None = None,
+    ongoing: bool = False,
+) -> None:
+    if use_bridge:
+        args = build_broadcast_post_notification_args(
+            notif_id=notif_id,
+            tag=tag,
+            title=title,
+            text=text,
+            big_text=big_text,
+            sub_text=sub_text,
+            ongoing=ongoing,
+        )
+    else:
+        args = build_shell_post_notification_args(
+            tag=tag,
+            title=title,
+            text=text,
+            big_text=big_text,
+        )
+    adb.shell_quoted(*args, timeout=20, check=True)
+
+
+def cancel_demo_notifications(
+    adb: AdbDriver,
+    *,
+    use_bridge: bool,
+    notif_id: int | None = None,
+    tag: str | None = None,
+    cancel_all: bool = False,
+) -> None:
+    if not use_bridge:
+        return
+    args = build_broadcast_cancel_notification_args(
+        notif_id=notif_id,
+        tag=tag,
+        cancel_all=cancel_all,
+    )
+    adb.shell_quoted(*args, timeout=20, check=False)
 
 
 def file_sha256(path: Path) -> str:
@@ -752,6 +942,89 @@ def analyze_video_visual_content(
     }
 
 
+def _compose_and_validate_video(
+    *,
+    scripts_dir: Path,
+    platform: str,
+    pebble_ts: Path,
+    pebble_frame_count: int,
+    android_mp4: Path | None,
+    android_ts: Path | None,
+    output_mp4: Path,
+    poster_png: Path,
+    title: str | None,
+    ffmpeg_bin: str,
+    ffprobe_bin: str,
+    assertion_prefix: str,
+    record_assertion: Any,
+) -> tuple[dict[str, Any], dict[str, Any] | None, dict[str, Any]]:
+    compose_cmd = [
+        sys.executable,
+        str(scripts_dir / "compose-demo-video.py"),
+        "--pebble-timestamps",
+        str(pebble_ts),
+        "--platform",
+        platform,
+        "--output",
+        str(output_mp4),
+        "--poster",
+        str(poster_png),
+        "--ffmpeg-bin",
+        ffmpeg_bin,
+        "--ffprobe-bin",
+        ffprobe_bin,
+    ]
+    if title:
+        compose_cmd.extend(["--title", title])
+    if android_mp4 is not None:
+        compose_cmd.extend(["--android-video", str(android_mp4)])
+    elif android_ts is not None:
+        compose_cmd.extend(["--android-timestamps", str(android_ts)])
+    else:
+        raise RuntimeError("No Android video or frame sequence captured")
+
+    compose_res = run_cmd(compose_cmd, timeout=180, check=True)
+    video_meta = json.loads(compose_res.stdout)
+    record_assertion(
+        f"{assertion_prefix}side_by_side_video_rendered",
+        output_mp4.is_file() and video_meta["durationSeconds"] > 1.0 and video_meta["codec"] == "h264",
+        f"Rendered {output_mp4.name} ({video_meta['width']}x{video_meta['height']}, "
+        f"{video_meta['durationSeconds']}s, {video_meta['sizeBytes'] // 1024} KB, "
+        f"{pebble_frame_count} Pebble frames)",
+    )
+
+    android_video_stats: dict[str, Any] | None = None
+    if android_mp4 is not None and android_mp4.is_file():
+        android_video_stats = analyze_video_visual_content(
+            android_mp4,
+            ffmpeg_bin=ffmpeg_bin,
+            ffprobe_bin=ffprobe_bin,
+        )
+    poster_android_stats = analyze_image_visual_content(
+        poster_png,
+        ffmpeg_bin=ffmpeg_bin,
+        crop=POSTER_ANDROID_CONTENT_CROP,
+    )
+    android_video_ok = (android_video_stats is None or not android_video_stats["isBlank"]) and (
+        not poster_android_stats["isBlank"]
+    )
+    record_assertion(
+        f"{assertion_prefix}android_video_and_poster_non_blank",
+        android_video_ok,
+        f"Android recording & poster left pane rendered visible UI "
+        f"(poster lumaStd={poster_android_stats['lumaStd']}, "
+        f"colorBuckets={poster_android_stats['colorBuckets']}"
+        + (
+            f"; screenrecord {android_video_stats['nonBlankSamples']}/{android_video_stats['samplesChecked']} "
+            f"non-blank samples, bestLumaStd={android_video_stats['bestLumaStd']}"
+            if android_video_stats is not None
+            else ""
+        )
+        + ")",
+    )
+    return video_meta, android_video_stats, poster_android_stats
+
+
 def run_platform_e2e(
     platform: str,
     apk_path: Path,
@@ -764,6 +1037,7 @@ def run_platform_e2e(
     ffmpeg_bin: str,
     ffprobe_bin: str,
     serial: str | None,
+    include_auto_pins: bool = True,
 ) -> dict[str, Any]:
     scripts_dir = Path(__file__).resolve().parent
     work_dir = output_dir / f"work-{platform}"
@@ -1035,7 +1309,7 @@ def run_platform_e2e(
             "Pebble watch Timeline refreshed after pin deletion",
         )
 
-        # 9. Stop recordings and composite side-by-side MP4 video
+        # 9. Stop recordings and composite Video #1 (Manual Pins side-by-side MP4)
         log(f"Finalizing dual recordings and rendering side-by-side video for {platform}...")
         pebble_ts = work_dir / "pebble-timestamps.json"
         pebble_frames = pebble_rec.stop(pebble_ts)
@@ -1046,40 +1320,23 @@ def run_platform_e2e(
         demo_mp4 = output_dir / f"demo-{platform}.mp4"
         poster_png = output_dir / f"demo-{platform}-poster.png"
 
-        compose_cmd = [
-            sys.executable,
-            str(scripts_dir / "compose-demo-video.py"),
-            "--pebble-timestamps",
-            str(pebble_ts),
-            "--platform",
-            platform,
-            "--output",
-            str(demo_mp4),
-            "--poster",
-            str(poster_png),
-            "--ffmpeg-bin",
-            ffmpeg_bin,
-            "--ffprobe-bin",
-            ffprobe_bin,
-        ]
-        if android_mp4 is not None:
-            compose_cmd.extend(["--android-video", str(android_mp4)])
-        elif android_ts is not None:
-            compose_cmd.extend(["--android-timestamps", str(android_ts)])
-        else:
-            raise RuntimeError("No Android video or frame sequence captured")
-
-        compose_res = run_cmd(compose_cmd, timeout=180, check=True)
-        video_meta = json.loads(compose_res.stdout)
-        record_assertion(
-            "side_by_side_video_rendered",
-            demo_mp4.is_file() and video_meta["durationSeconds"] > 1.0 and video_meta["codec"] == "h264",
-            f"Rendered {demo_mp4.name} ({video_meta['width']}x{video_meta['height']}, "
-            f"{video_meta['durationSeconds']}s, {video_meta['sizeBytes'] // 1024} KB, "
-            f"{len(pebble_frames)} Pebble frames)",
+        video_meta, android_video_stats, poster_android_stats = _compose_and_validate_video(
+            scripts_dir=scripts_dir,
+            platform=platform,
+            pebble_ts=pebble_ts,
+            pebble_frame_count=len(pebble_frames),
+            android_mp4=android_mp4,
+            android_ts=android_ts,
+            output_mp4=demo_mp4,
+            poster_png=poster_png,
+            title=None,
+            ffmpeg_bin=ffmpeg_bin,
+            ffprobe_bin=ffprobe_bin,
+            assertion_prefix="",
+            record_assertion=record_assertion,
         )
 
-        # Verify all Android milestone screenshots, recorded Android video, and composed poster pane are non-blank
+        # Verify all Manual Pins Android milestone screenshots are non-blank
         android_milestone_stats: dict[str, dict[str, Any]] = {}
         blank_milestones: list[str] = []
         for png_name in (
@@ -1106,49 +1363,388 @@ def run_platform_e2e(
             else f"Blank Android milestone screenshot(s): {', '.join(blank_milestones)}",
         )
 
-        android_video_stats: dict[str, Any] | None = None
-        if android_mp4 is not None and android_mp4.is_file():
-            android_video_stats = analyze_video_visual_content(
-                android_mp4,
+        # 10. Second Video: Auto-Pins Setup & Live Incoming Notifications Exploration
+        auto_pins_video_meta: dict[str, Any] | None = None
+        auto_pins_android_video_stats: dict[str, Any] | None = None
+        auto_pins_poster_android_stats: dict[str, Any] | None = None
+        final_bridge_events = events_after_delete["events"]
+
+        if include_auto_pins:
+            log(f"================ Starting Video #2: Auto-Pins exploration ({platform}) ================")
+            # Return Pebble from Future Timeline to clean watchface before starting Video #2
+            pebble.click("back")
+            time.sleep(1.0)
+            pebble_watchface_png = pebble.capture_png(
+                screenshots_dir / "06-pebble-watchface.png",
+                ffmpeg_bin=ffmpeg_bin,
+            )
+
+            # Ensure Notification Access starts disabled so setup is demonstrated from scratch
+            adb.shell("cmd", "notification", "disallow_listener", NOTIFICATION_LISTENER_COMPONENT, check=False)
+            time.sleep(0.5)
+
+            use_bridge_notifications = bridge_supports_demo_notifications(adb)
+            if use_bridge_notifications:
+                cancel_demo_notifications(adb, use_bridge=True, cancel_all=True)
+                notif_source_package = BRIDGE_PACKAGE
+                log(f"Using Emulator Bridge DemoNotificationReceiver ({notif_source_package}) for Auto-Pin notifications.")
+            else:
+                notif_source_package = "com.android.shell"
+                log("DemoNotificationReceiver not found in bridge APK; falling back to `cmd notification post` (com.android.shell).")
+
+            baseline_events = http_get_json(f"http://127.0.0.1:{bridge_port}/events")["events"]
+            baseline_event_count = len(baseline_events)
+
+            work_dir_auto = output_dir / f"work-{platform}-auto-pins"
+            work_dir_auto.mkdir(parents=True, exist_ok=True)
+            t0_auto = time.monotonic()
+            pebble_rec = PebbleFrameRecorder(pebble, work_dir_auto / "pebble-frames", t0=t0_auto, fps=5.0)
+            android_rec = AndroidScreenRecorder(
+                adb,
+                work_dir_auto,
+                t0=t0_auto,
+                remote_mp4="/sdcard/pebblepin-e2e-auto-pins.mp4",
+            )
+            pebble_rec.start()
+            android_rec.start()
+
+            # Scene A1: Navigate to Auto-Pins tab & grant Android Notification Access
+            log("Scene A1: Opening Auto-Pins tab and granting Notification Access...")
+            auto_tab = adb.wait_for_node(timeout=15.0, text="Auto-Pins")
+            adb.tap(*auto_tab.center)
+            adb.wait_for_node(timeout=15.0, text="Notification Auto-Pins")
+            adb.wait_for_node(timeout=15.0, text="Grant Notification Access")
+            adb.wait_for_node(timeout=15.0, text="No auto-created pins yet")
+            time.sleep(1.2)
+            adb.screencap(screenshots_dir / "06-android-autopins-initial.png")
+
+            open_settings_btn = adb.find_or_scroll(direction="down", text="Open Notification Access Settings")
+            adb.tap(*open_settings_btn.center)
+            time.sleep(1.5)
+
+            # Grant Notification Access while Android's real Notification Access Settings screen is shown
+            adb.shell("cmd", "notification", "allow_listener", NOTIFICATION_LISTENER_COMPONENT)
+            time.sleep(1.0)
+            adb.shell("input", "keyevent", "4", check=False)
+            time.sleep(1.0)
+
+            if not adb.find_nodes(text="Notification Auto-Pins"):
+                adb.shell("am", "start", "-n", f"{APP_PACKAGE}/{APP_ACTIVITY}")
+                time.sleep(1.0)
+                if not adb.find_nodes(text="Notification Auto-Pins"):
+                    auto_tab_again = adb.wait_for_node(timeout=10.0, text="Auto-Pins")
+                    adb.tap(*auto_tab_again.center)
+
+            adb.wait_for_node(timeout=15.0, text="Notification Access Granted")
+            listener_deadline = time.time() + 15.0
+            refreshed_once = False
+            listener_active = False
+            while time.time() < listener_deadline:
+                if adb.find_nodes(text_contains="Listener service active"):
+                    listener_active = True
+                    break
+                if not refreshed_once and time.time() > listener_deadline - 10.0:
+                    refreshed_once = True
+                    refresh_nodes = adb.find_nodes(content_desc_contains="Refresh notification access")
+                    if refresh_nodes:
+                        adb.tap(*refresh_nodes[0].center)
+                time.sleep(0.8)
+            time.sleep(0.8)
+            adb.screencap(screenshots_dir / "07-android-autopins-access-granted.png")
+            record_assertion(
+                "auto_pin_notification_access_granted",
+                listener_active,
+                "Notification Access granted and PebbleNotificationListenerService bound ('Listener service active.')",
+            )
+
+            # Scene A2: Allowlist notification source package, set include/exclude keywords & accent color
+            log("Scene A2: Configuring allowed source app, include/exclude filters, and accent color...")
+            pkg_field = adb.find_or_scroll(max_scrolls=16, direction="down", text_contains="Add package manually")
+            adb.tap(*pkg_field.center)
+            time.sleep(0.5)
+            adb.input_text(notif_source_package)
+            adb.dismiss_ime_if_shown()
+
+            add_btn = adb.find_or_scroll(max_scrolls=4, direction="down", text="Add")
+            adb.tap(*add_btn.center)
+            time.sleep(0.8)
+
+            include_field = adb.find_or_scroll(
+                max_scrolls=10,
+                direction="down",
+                text_contains="Global include keywords",
+            )
+            adb.tap(*include_field.center)
+            time.sleep(0.5)
+            adb.input_text("flight,delivery")
+            adb.dismiss_ime_if_shown()
+
+            exclude_field = adb.find_or_scroll(
+                max_scrolls=10,
+                direction="down",
+                text_contains="Global exclude keywords",
+            )
+            adb.tap(*exclude_field.center)
+            time.sleep(0.5)
+            adb.input_text("promo")
+            adb.dismiss_ime_if_shown()
+
+            save_filters_btn = adb.find_or_scroll(max_scrolls=10, direction="down", text="Save Global Filters")
+            adb.tap(*save_filters_btn.center)
+            adb.wait_for_node(timeout=15.0, text_contains="rules saved locally", scroll_direction="down")
+
+            green_swatch = adb.find_or_scroll(
+                max_scrolls=10,
+                direction="down",
+                content_desc="Green notification pin accent color",
+            )
+            adb.tap(*green_swatch.center)
+            time.sleep(0.8)
+            adb.screencap(screenshots_dir / "08-android-autopins-configured.png")
+
+            # Scroll back up so Allowed Source Apps (1) and Recent Auto-Pins (0) are shown before notifications arrive
+            adb.find_or_scroll(max_scrolls=16, direction="up", text="Allowed Source Apps (1)")
+            time.sleep(0.8)
+            adb.find_or_scroll(max_scrolls=16, direction="up", text="Recent Auto-Pins (0)")
+            time.sleep(1.0)
+            record_assertion(
+                "auto_pin_setup_configured",
+                True,
+                f"Allowlisted '{notif_source_package}', saved include='flight,delivery' / exclude='promo', "
+                "and selected Green default accent color",
+            )
+
+            # Scene A3: Live incoming notifications arrive -> filtered vs auto-pinned on Android & Pebble
+            log("Scene A3: Sending excluded promo notification (should be ignored)...")
+            post_demo_notification(
+                adb,
+                use_bridge=use_bridge_notifications,
+                notif_id=2001,
+                tag="demo-promo",
+                title="Flight Promo Sale",
+                text="50 percent off promo fares today",
+            )
+            time.sleep(3.0)
+            events_after_promo = http_get_json(f"http://127.0.0.1:{bridge_port}/events")["events"]
+            promo_auto_events = events_after_promo[baseline_event_count:]
+            cancel_demo_notifications(adb, use_bridge=use_bridge_notifications, notif_id=2001, tag="demo-promo")
+            time.sleep(0.8)
+            record_assertion(
+                "auto_pin_excluded_notification_ignored",
+                len(promo_auto_events) == 0,
+                "Excluded notification ('Flight Promo Sale') matched 'promo' exclude filter and created 0 pins",
+            )
+
+            log("Scene A3: Sending matching Flight notification (+15 min extracted time)...")
+            post_demo_notification(
+                adb,
+                use_bridge=use_bridge_notifications,
+                notif_id=2002,
+                tag="demo-flight",
+                title="Flight DL123 Boarding",
+                text="Gate B12 departs in 15 min",
+                big_text="Gate B12 departs in 15 min - Terminal 2",
+            )
+            events_after_flight_payload = wait_for_bridge_events(
+                bridge_port,
+                lambda payload: any(
+                    e["action"] == "insert" and e["returncode"] == 0
+                    for e in payload["events"][baseline_event_count:]
+                ),
+                timeout=20.0,
+            )
+            flight_inserts = [
+                e
+                for e in events_after_flight_payload["events"][baseline_event_count:]
+                if e["action"] == "insert" and e["returncode"] == 0
+            ]
+            adb.wait_for_node(timeout=20.0, text="Recent Auto-Pins (1)")
+            adb.wait_for_node(timeout=10.0, text="Flight DL123 Boarding")
+            time.sleep(1.0)
+            adb.screencap(screenshots_dir / "09-android-autopin-flight.png")
+
+            flight_pin = flight_inserts[0] if flight_inserts else None
+            record_assertion(
+                "auto_pin_flight_created",
+                flight_pin is not None
+                and flight_pin["pinId"].startswith("ppm-notif-")
+                and flight_pin["pin"]["layout"].get("title") == "Flight DL123 Boarding"
+                and flight_pin["pin"]["layout"].get("tinyIcon") == "system://images/NOTIFICATION_FLAG"
+                and flight_pin["pin"]["layout"].get("backgroundColor") == "#00AA00",
+                f"Incoming Flight notification auto-created Pebble Timeline pin "
+                f"(pinId={flight_pin['pinId'] if flight_pin else 'none'}, color="
+                f"{flight_pin['pin']['layout'].get('backgroundColor') if flight_pin else 'none'})",
+            )
+
+            # Open the newly auto-created Flight pin on Pebble Timeline
+            pebble.click("down")
+            time.sleep(1.2)
+            pebble.click("select")
+            time.sleep(2.4)
+            pebble_flight_png = pebble.capture_png(
+                screenshots_dir / "09-pebble-autopin-flight.png",
+                ffmpeg_bin=ffmpeg_bin,
+            )
+            record_assertion(
+                "pebble_autopin_flight_rendered",
+                file_sha256(pebble_flight_png) != file_sha256(pebble_watchface_png),
+                "Pebble watch displayed auto-created 'Flight DL123 Boarding' Timeline pin detail",
+            )
+
+            log("Scene A3: Sending second matching Delivery notification (+30 min extracted time)...")
+            post_demo_notification(
+                adb,
+                use_bridge=use_bridge_notifications,
+                notif_id=2003,
+                tag="demo-delivery",
+                title="Package Delivery",
+                text="Courier arriving in 30 min",
+                big_text="Courier arriving in 30 min - Front desk",
+            )
+            events_after_delivery_payload = wait_for_bridge_events(
+                bridge_port,
+                lambda payload: len(
+                    [
+                        e
+                        for e in payload["events"][baseline_event_count:]
+                        if e["action"] == "insert" and e["returncode"] == 0
+                    ]
+                )
+                >= 2,
+                timeout=20.0,
+            )
+            auto_inserts = [
+                e
+                for e in events_after_delivery_payload["events"][baseline_event_count:]
+                if e["action"] == "insert" and e["returncode"] == 0
+            ]
+            adb.wait_for_node(timeout=20.0, text="Recent Auto-Pins (2)")
+            adb.wait_for_node(timeout=10.0, text="Package Delivery")
+            time.sleep(1.0)
+            adb.screencap(screenshots_dir / "10-android-autopin-delivery.png")
+
+            delivery_pin = auto_inserts[1] if len(auto_inserts) >= 2 else None
+            record_assertion(
+                "auto_pin_delivery_created",
+                delivery_pin is not None
+                and flight_pin is not None
+                and delivery_pin["pinId"].startswith("ppm-notif-")
+                and delivery_pin["pinId"] != flight_pin["pinId"]
+                and delivery_pin["pin"]["layout"].get("title") == "Package Delivery"
+                and delivery_pin["pin"]["layout"].get("backgroundColor") == "#00AA00",
+                f"Incoming Delivery notification auto-created second Pebble Timeline pin "
+                f"(pinId={delivery_pin['pinId'] if delivery_pin else 'none'})",
+            )
+
+            # Navigate Pebble from Flight pin detail -> Timeline list -> Delivery pin detail
+            pebble.click("back")
+            time.sleep(1.0)
+            pebble.click("down")
+            time.sleep(1.2)
+            pebble.click("select")
+            time.sleep(2.4)
+            pebble_delivery_png = pebble.capture_png(
+                screenshots_dir / "10-pebble-autopin-delivery.png",
+                ffmpeg_bin=ffmpeg_bin,
+            )
+            record_assertion(
+                "pebble_autopin_delivery_rendered",
+                file_sha256(pebble_delivery_png) != file_sha256(pebble_flight_png),
+                "Pebble watch navigated to second auto-created 'Package Delivery' Timeline pin detail",
+            )
+
+            # Stop Video #2 recordings & compose side-by-side MP4
+            log(f"Finalizing Auto-Pins dual recordings and rendering second video for {platform}...")
+            pebble_auto_ts = work_dir_auto / "pebble-timestamps.json"
+            pebble_auto_frames = pebble_rec.stop(pebble_auto_ts)
+            pebble_rec = None
+            android_auto_mp4, android_auto_ts = android_rec.stop()
+            android_rec = None
+
+            cancel_demo_notifications(adb, use_bridge=use_bridge_notifications, cancel_all=True)
+
+            auto_demo_mp4 = output_dir / f"demo-{platform}-auto-pins.mp4"
+            auto_poster_png = output_dir / f"demo-{platform}-auto-pins-poster.png"
+            platform_label = "Pebble Time 2 (emery)" if platform == "emery" else "Pebble Time (basalt)"
+
+            (
+                auto_pins_video_meta,
+                auto_pins_android_video_stats,
+                auto_pins_poster_android_stats,
+            ) = _compose_and_validate_video(
+                scripts_dir=scripts_dir,
+                platform=platform,
+                pebble_ts=pebble_auto_ts,
+                pebble_frame_count=len(pebble_auto_frames),
+                android_mp4=android_auto_mp4,
+                android_ts=android_auto_ts,
+                output_mp4=auto_demo_mp4,
+                poster_png=auto_poster_png,
+                title=f"PebblePinManager Auto-Pins Demo  |  Android + {platform_label}",
                 ffmpeg_bin=ffmpeg_bin,
                 ffprobe_bin=ffprobe_bin,
+                assertion_prefix="auto_pins_",
+                record_assertion=record_assertion,
             )
-        poster_android_stats = analyze_image_visual_content(
-            poster_png,
-            ffmpeg_bin=ffmpeg_bin,
-            crop=POSTER_ANDROID_CONTENT_CROP,
-        )
-        android_video_ok = (android_video_stats is None or not android_video_stats["isBlank"]) and (
-            not poster_android_stats["isBlank"]
-        )
-        record_assertion(
-            "android_video_and_poster_non_blank",
-            android_video_ok,
-            f"Android recording & poster left pane rendered visible UI "
-            f"(poster lumaStd={poster_android_stats['lumaStd']}, "
-            f"colorBuckets={poster_android_stats['colorBuckets']}"
-            + (
-                f"; screenrecord {android_video_stats['nonBlankSamples']}/{android_video_stats['samplesChecked']} "
-                f"non-blank samples, bestLumaStd={android_video_stats['bestLumaStd']}"
-                if android_video_stats is not None
-                else ""
-            )
-            + ")",
-        )
 
-        report = {
+            auto_blank_milestones: list[str] = []
+            auto_milestone_names = (
+                "06-android-autopins-initial.png",
+                "07-android-autopins-access-granted.png",
+                "08-android-autopins-configured.png",
+                "09-android-autopin-flight.png",
+                "10-android-autopin-delivery.png",
+            )
+            for png_name in auto_milestone_names:
+                png_path = screenshots_dir / png_name
+                st = analyze_image_visual_content(png_path, ffmpeg_bin=ffmpeg_bin)
+                android_milestone_stats[png_name] = st
+                if st["isBlank"]:
+                    auto_blank_milestones.append(
+                        f"{png_name}(lumaStd={st['lumaStd']},buckets={st['colorBuckets']})"
+                    )
+
+            record_assertion(
+                "auto_pins_android_screenshots_non_blank",
+                len(auto_blank_milestones) == 0,
+                f"All {len(auto_milestone_names)} Auto-Pins Android milestone screenshots contain visible UI "
+                f"(min lumaStd={min(android_milestone_stats[n]['lumaStd'] for n in auto_milestone_names)}, "
+                f"min colorBuckets={min(android_milestone_stats[n]['colorBuckets'] for n in auto_milestone_names)})"
+                if not auto_blank_milestones
+                else f"Blank Auto-Pins Android milestone screenshot(s): {', '.join(auto_blank_milestones)}",
+            )
+
+            final_bridge_events = events_after_delivery_payload["events"]
+
+        videos_list: list[dict[str, Any]] = [
+            {"scenario": "manual-pins", "label": "Manual Pins", **video_meta},
+        ]
+        if auto_pins_video_meta is not None:
+            videos_list.append(
+                {"scenario": "auto-pins", "label": "Auto-Pins", **auto_pins_video_meta}
+            )
+
+        visual_checks: dict[str, Any] = {
+            "androidScreenshots": android_milestone_stats,
+            "androidVideo": android_video_stats,
+            "posterAndroidPane": poster_android_stats,
+        }
+        if auto_pins_video_meta is not None:
+            visual_checks["autoPinsAndroidVideo"] = auto_pins_android_video_stats
+            visual_checks["autoPinsPosterAndroidPane"] = auto_pins_poster_android_stats
+
+        report: dict[str, Any] = {
             "platform": platform,
             "status": "passed",
             "assertions": assertions,
-            "bridgeEvents": events_after_delete["events"],
+            "bridgeEvents": final_bridge_events,
             "video": video_meta,
-            "visualChecks": {
-                "androidScreenshots": android_milestone_stats,
-                "androidVideo": android_video_stats,
-                "posterAndroidPane": poster_android_stats,
-            },
+            "videos": videos_list,
+            "visualChecks": visual_checks,
             "screenshots": sorted(str(p.relative_to(output_dir)) for p in screenshots_dir.glob("*.png")),
         }
+        if auto_pins_video_meta is not None:
+            report["autoPinsVideo"] = auto_pins_video_meta
         (output_dir / f"e2e-report-{platform}.json").write_text(
             json.dumps(report, indent=2),
             encoding="utf-8",
@@ -1196,18 +1792,22 @@ def write_summary(output_dir: Path, reports: list[dict[str, Any]]) -> Path:
     lines = [
         "# PebblePinManager Emulator E2E & Demo Video Report",
         "",
-        "| Pebble Platform | Status | Assertions | Video Resolution | Duration | Size |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Pebble Platform | Scenario | Status | Assertions | Video Resolution | Duration | Size |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in reports:
         passed = sum(1 for a in r["assertions"] if a["passed"])
         total = len(r["assertions"])
-        v = r["video"]
-        lines.append(
-            f"| `{r['platform']}` | **{r['status'].upper()}** | {passed}/{total} | "
-            f"`{v['width']}x{v['height']}` ({v['codec']}) | {v['durationSeconds']}s | "
-            f"{v['sizeBytes'] // 1024} KB |"
-        )
+        videos = r.get("videos")
+        if not isinstance(videos, list) or not videos:
+            videos = [{"label": "Manual Pins", **r["video"]}]
+        for v in videos:
+            label = v.get("label") or v.get("scenario") or "Manual Pins"
+            lines.append(
+                f"| `{r['platform']}` | {label} | **{r['status'].upper()}** | {passed}/{total} | "
+                f"`{v['width']}x{v['height']}` ({v['codec']}) | {v['durationSeconds']}s | "
+                f"{v['sizeBytes'] // 1024} KB |"
+            )
     lines.append("")
     for r in reports:
         lines.append(f"## Assertions — `{r['platform']}`")
@@ -1230,7 +1830,7 @@ def write_summary(output_dir: Path, reports: list[dict[str, Any]]) -> Path:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run end-to-end PebblePinManager emulator tests and record side-by-side demo video."
+        description="Run end-to-end PebblePinManager emulator tests and record side-by-side demo videos."
     )
     parser.add_argument(
         "--platforms",
@@ -1247,6 +1847,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--ffmpeg-bin", default="ffmpeg")
     parser.add_argument("--ffprobe-bin", default="ffprobe")
     parser.add_argument("--adb-serial", default=None)
+    parser.add_argument(
+        "--skip-auto-pins",
+        action="store_true",
+        help="Skip the second Auto-Pins setup & incoming notifications E2E video",
+    )
     return parser.parse_args(argv)
 
 
@@ -1281,6 +1886,7 @@ def main(argv: list[str]) -> int:
             ffmpeg_bin=args.ffmpeg_bin,
             ffprobe_bin=args.ffprobe_bin,
             serial=args.adb_serial,
+            include_auto_pins=not args.skip_auto_pins,
         )
         reports.append(report)
 
