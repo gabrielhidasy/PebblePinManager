@@ -6,6 +6,7 @@ Entries are kept concise (1–2 lines per PR relevant to the APK or PBW). CI, do
 
 ## [Unreleased]
 
+- **Android (APK):** Enable R8 code shrinking, resource shrinking, and obfuscation for release builds (`.apk` and Google Play `.aab`) with ProGuard rules covering PebbleKit 2 IPC, `kotlinx.serialization` models, Compose, and DataStore.
 - **Android (APK):** Add an in-app **Privacy Policy** dialog accessible from the app bar and Settings, summarizing PebblePinManager's 100% offline, zero-collection privacy guarantees.
 - **Android (APK):** Remove the stray teal notification dot badge from the launcher icon for a cleaner app icon.
 - **Android (APK):** Show a **Prominent Disclosure** modal explaining how notification text is processed locally on-device before opening Android's Notification Access settings.

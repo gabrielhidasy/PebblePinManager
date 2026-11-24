@@ -63,18 +63,20 @@ cd android
 ./gradlew assembleDebug       # outputs app/build/outputs/apk/debug/app-debug.apk
 ```
 
-#### Release APK Signing (Optional)
-To build signed release APKs (`xyz.hidasy.pebblepinmanager`) locally, point Gradle at your keystore via environment variables:
+#### Release APK & Play Store App Bundle Signing (Optional)
+To build R8-minified, signed release APKs and the Google Play Android App Bundle (`.aab`) for `xyz.hidasy.pebblepinmanager` locally, point Gradle at your keystore via environment variables:
 ```bash
 export ANDROID_RELEASE_KEYSTORE_PATH=/path/to/release.keystore
 export ANDROID_RELEASE_KEYSTORE_PASSWORD=...
 export ANDROID_RELEASE_KEY_ALIAS=...
 export ANDROID_RELEASE_KEY_PASSWORD=...
 cd android
-./gradlew :app:assembleRelease :app:assembleReleaseDev
+./gradlew :app:assembleRelease :app:assembleReleaseDev :app:bundleRelease
 # Outputs:
-#   android/app/build/outputs/apk/release/app-release.apk           (standard, without Developer Mode)
-#   android/app/build/outputs/apk/releaseDev/app-releaseDev.apk     (-dev, with Developer Mode)
+#   android/app/build/outputs/apk/release/app-release.apk               (standard, without Developer Mode)
+#   android/app/build/outputs/apk/releaseDev/app-releaseDev.apk         (-dev, with Developer Mode)
+#   android/app/build/outputs/bundle/release/app-release.aab            (Google Play Store App Bundle)
+#   android/app/build/outputs/mapping/release/mapping.txt               (R8 deobfuscation mapping)
 ```
 
 ### Companion Watchapp (`watchapp/`)
