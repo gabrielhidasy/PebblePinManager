@@ -1,0 +1,7 @@
+Initial Google Play release of Pin Manager for Pebble:
+• Create, edit, and delete custom Pebble Timeline pins locally via PebbleKit Android 2
+• Customize pin icons, durations, and accent colors
+• Optional 100% on-device Notification Auto-Pins with per-app allowlist, keyword/regex rules, and Rule Tester
+• Watchless "Run without a watch" mode with Simulated Timeline preview
+• Adaptive phone, foldable two-pane, and landscape Material 3 layouts
+• Zero internet permission, no ads, no tracking

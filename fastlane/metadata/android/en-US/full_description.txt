@@ -1,0 +1,41 @@
+Add custom events (pins) to your Pebble smartwatch Timeline directly from your Android phone — 100% locally on-device, with zero cloud servers, no accounts, and no internet permission.
+
+Built for the modern Core Devices Pebble Android app (libpebble3), microPebble, and PebbleKit Android 2, Pin Manager for Pebble works with Pebble Time (basalt), Pebble Time 2 (emery), and compatible Pebble watches.
+
+KEY FEATURES
+
+• Manual Timeline Pin Composer
+  Create custom Timeline pins with a title, optional description (up to 512 characters), local date & time (automatically converted to UTC), quick time presets (Now, +15 min, +1 hour, Tomorrow 09:00), duration, custom icon, and accent color on color Pebble watches.
+
+• Pin History with In-Place Edit & Delete
+  Review your recent sent pins right inside the app and update or remove them on your watch Timeline at any time.
+
+• Optional On-Device Auto-Pins (Opt-In)
+  Automatically convert incoming notifications from apps you choose into Pebble Timeline pins. Includes a per-app allowlist, include/exclude keyword filters, customizable regex rules, automatic relative/clock time extraction, deduplicated pin updates, and a built-in Rule Tester.
+
+• Companion Pebble Watchapp Integration
+  Pair with the companion Pebble watchapp to browse recent pins on your wrist, reschedule or delete pins directly from your watch, and trigger "Open Phone App" from your Pebble.
+
+• Watchless Preview Mode ("Run without a watch")
+  Try the full pin composer, Simulated Timeline, and Auto-Pins rule tester locally on your phone without connecting a physical Pebble watch.
+
+• Adaptive Material 3 Interface
+  Clean Jetpack Compose UI tailored for standard phones, unfolded foldables (two-pane layout), and landscape orientation.
+
+PRIVACY BY DESIGN
+
+• 100% on-device: Requests NO INTERNET permission and cannot contact any external server.
+• No accounts, no analytics, no telemetry, no crash trackers, and no ads.
+• Open-source software (MIT License): source code available at https://github.com/gabrielhidasy/PebblePinManager
+
+PERMISSIONS (ALL OPTIONAL)
+
+Pin Manager for Pebble requires zero permissions to compose and preview pins, and only uses optional system permissions if you enable specific features:
+
+• Post Notifications (Optional, Android 13+): Used solely to display a local tap-to-open alert when you trigger "Open Phone App" on your Pebble watch while the app is in the background.
+• Display over other apps / "Instant Open" (Optional, Android 10+): Disabled by default and never required. Pin Manager for Pebble never draws overlays over other apps or reads screen content. This permission is used solely as Android 10+'s Background Activity Launch (BAL) exemption so "Open Phone App" on your paired watch can launch the app immediately without an intermediate notification. If left off, the app gracefully falls back to the tap-to-open notification.
+• Notification Access (Optional, off by default): Strictly opt-in for Auto-Pins, scoped only to apps you select. Notification text is processed 100% locally on your device and passed via local PebbleKit 2 IPC only to your installed Pebble companion app.
+
+DISCLAIMER
+
+Pin Manager for Pebble is an independent, open-source project and is not affiliated with, endorsed by, or sponsored by Core Devices or Pebble.
