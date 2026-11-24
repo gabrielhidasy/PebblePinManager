@@ -43,7 +43,7 @@ object PrivacyPolicyInfo {
     val summaryHighlights: List<PrivacyPolicyHighlight> = listOf(
         PrivacyPolicyHighlight(
             title = "100% local — no internet access",
-            detail = "PebblePinManager does not request the INTERNET permission and never connects to external servers. There are no analytics, telemetry, crash reporting, or ads.",
+            detail = "${AppBranding.APP_DISPLAY_NAME} does not request the INTERNET permission and never connects to external servers. There are no analytics, telemetry, crash reporting, or ads.",
         ),
         PrivacyPolicyHighlight(
             title = "Pin history & local Pebble sync",

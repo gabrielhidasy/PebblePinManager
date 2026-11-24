@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PebblePinManager</string>
+    <string name="app_name">Pin Manager for Pebble</string>
     <string name="watch_handoff_channel_name">Watch Handoff</string>
     <string name="watch_handoff_channel_description">Tap-to-open prompts triggered by Open Phone App on your Pebble watch.</string>
-    <string name="watch_handoff_notification_title">Open PebblePinManager</string>
+    <string name="watch_handoff_notification_title">Open Pin Manager for Pebble</string>
     <string name="watch_handoff_notification_text">Requested from your Pebble watch. Tap to create or manage pins.</string>
     <string name="watch_handoff_notification_action">Open App</string>
-    <string name="notification_listener_label">PebblePinManager Notification Sync</string>
+    <string name="notification_listener_label">Pin Manager for Pebble Notification Sync</string>
 </resources>

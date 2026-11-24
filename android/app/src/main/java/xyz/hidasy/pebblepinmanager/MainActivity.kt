@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -60,6 +62,7 @@ import xyz.hidasy.pebblepinmanager.data.AppSettings
 import xyz.hidasy.pebblepinmanager.notifications.PebbleNotificationListenerService
 import xyz.hidasy.pebblepinmanager.pebble.AndroidPhoneLaunchEnvironment
 import xyz.hidasy.pebblepinmanager.pebble.PhoneHandoffCapabilities
+import xyz.hidasy.pebblepinmanager.ui.AppBranding
 import xyz.hidasy.pebblepinmanager.ui.DevModeRoute
 import xyz.hidasy.pebblepinmanager.ui.DevModeViewModel
 import xyz.hidasy.pebblepinmanager.ui.DevModeViewModelFactory
@@ -453,7 +456,7 @@ private fun PebblePinManagerRoot(
 }
 
 @Composable
-private fun AppSettingsDialog(
+internal fun AppSettingsDialog(
     runWithoutWatch: Boolean,
     onRunWithoutWatchChange: (Boolean) -> Unit,
     onOpenPrivacyPolicy: () -> Unit,
@@ -463,7 +466,12 @@ private fun AppSettingsDialog(
         onDismissRequest = onDismiss,
         title = { Text("App Settings") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -530,6 +538,19 @@ private fun AppSettingsDialog(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                HorizontalDivider()
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = AppBranding.APP_DISPLAY_NAME,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = AppBranding.NON_AFFILIATION_DISCLAIMER,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

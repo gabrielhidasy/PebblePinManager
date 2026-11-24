@@ -218,9 +218,11 @@ fun PinComposerScreen(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "PebblePinManager",
+                            text = AppBranding.APP_DISPLAY_NAME,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Text(
                             text = "Pebble Time & Pebble Time 2",
@@ -1282,7 +1284,7 @@ private fun WatchHandoffDialog(
                     text = if (capabilities.requiresBackgroundHandoff) {
                         "Android restricts opening apps directly from the background. Choose how \"Open Phone App\" on your Pebble reaches this phone:"
                     } else {
-                        "This Android version allows opening PebblePinManager directly from your Pebble watch."
+                        "This Android version allows opening ${AppBranding.APP_DISPLAY_NAME} directly from your Pebble watch."
                     },
                     style = MaterialTheme.typography.bodySmall,
                 )

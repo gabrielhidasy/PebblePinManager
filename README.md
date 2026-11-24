@@ -1,10 +1,12 @@
-# PebblePinManager
+# Pin Manager for Pebble
 
 Add custom events (**pins**) to your **Pebble Time (`basalt`)** and **Pebble Time 2 (`emery`)** smartwatch timeline directly from your Android phone.
 
+> Independent open-source app — not affiliated with, endorsed by, or sponsored by Core Devices or Pebble.
+
 ## Overview
 
-PebblePinManager consists of two cooperating components built for the modern **Core Devices Pebble Android app (`libpebble3`)** and **PebbleKit Android 2**:
+Pin Manager for Pebble consists of two cooperating components built for the modern **Core Devices Pebble Android app (`libpebble3`)** and **PebbleKit Android 2**:
 
 1. **Native Android App (`android/` — Kotlin + Jetpack Compose + Material 3):**
    - Uses **PebbleKit Android 2** (`io.rebble.pebblekit2:client:1.3.2` -> `DefaultPebbleSender.insertTimelinePin` / `deleteTimelinePin`) for direct local timeline delivery — no external server or API keys required.
@@ -47,7 +49,11 @@ See [INSTALL.md](INSTALL.md) for standalone Docker commands, local SDK builds, s
 
 ## Privacy
 
-PebblePinManager works 100% locally on your phone and paired Pebble watch — it requests no internet permission, collects no telemetry or analytics, and includes no ads or tracking SDKs. Read the full Privacy Policy at [pebblepinmanager.hidasy.xyz/privacy](https://pebblepinmanager.hidasy.xyz/privacy) (generated from [PRIVACY.md](PRIVACY.md)).
+Pin Manager for Pebble works 100% locally on your phone and paired Pebble watch — it requests no internet permission, collects no telemetry or analytics, and includes no ads or tracking SDKs. Read the full Privacy Policy at [pebblepinmanager.hidasy.xyz/privacy](https://pebblepinmanager.hidasy.xyz/privacy) (generated from [PRIVACY.md](PRIVACY.md)).
+
+## Disclaimer
+
+Independent open-source app — not affiliated with, endorsed by, or sponsored by Core Devices or Pebble.
 
 ## Contributing
 

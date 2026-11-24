@@ -54,7 +54,7 @@ data class NotificationAccessDisclosureCopy(
 
             return NotificationAccessDisclosureCopy(
                 title = TITLE,
-                intro = "Before opening Android Notification Access Settings, please review how PebblePinManager accesses and uses your data:",
+                intro = "Before opening Android Notification Access Settings, please review how ${AppBranding.APP_DISPLAY_NAME} accesses and uses your data:",
                 sections = listOf(
                     NotificationAccessDisclosureSection(
                         heading = "What data is accessed",
