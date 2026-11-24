@@ -17,5 +17,6 @@ PebblePinManager follows an **issue-based development** workflow.
    - Or run both inside Docker via `./scripts/build-docker.sh`.
 4. **Open a Pull Request**
    - Reference the issue (`Closes #<N>`) in the PR description.
+   - For PRs that affect the **Android APK** (`android/app`) or **Pebble watchapp** (`watchapp/`), add a concise 1–2 line user-facing entry under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) (omit CI, docs-only, and internal tooling PRs).
    - Include verification output and any watch-testing notes.
    - Keep commits clean, focused, and referencing `#<N>`.

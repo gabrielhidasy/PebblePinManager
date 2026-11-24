@@ -34,7 +34,7 @@ PebblePinManager consists of two cooperating components built for the modern **C
 
 ## Quick Start (Get or Build Both Apps)
 
-- **Download Prebuilt Releases:** Grab the latest `.apk` and `.pbw` binaries from [GitHub Releases](https://github.com/gabrielhidasy/PebblePinManager/releases).
+- **Download Prebuilt Releases:** Grab the latest `.apk` and `.pbw` binaries from [GitHub Releases](https://github.com/gabrielhidasy/PebblePinManager/releases) (see [CHANGELOG.md](CHANGELOG.md) for what changed in each release).
 - **Docker (Zero Local SDK Setup):**
   ```bash
   ./scripts/build-docker.sh
