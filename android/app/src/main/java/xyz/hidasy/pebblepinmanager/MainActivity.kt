@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -11,19 +12,25 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.ViewTimeline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -39,6 +46,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -60,6 +69,8 @@ import xyz.hidasy.pebblepinmanager.ui.NotificationSettingsViewModelFactory
 import xyz.hidasy.pebblepinmanager.ui.PinComposerRoute
 import xyz.hidasy.pebblepinmanager.ui.PinComposerViewModel
 import xyz.hidasy.pebblepinmanager.ui.PinComposerViewModelFactory
+import xyz.hidasy.pebblepinmanager.ui.PrivacyPolicyDialog
+import xyz.hidasy.pebblepinmanager.ui.PrivacyPolicyInfo
 import xyz.hidasy.pebblepinmanager.ui.SimulatedTimelineRoute
 import xyz.hidasy.pebblepinmanager.ui.SimulatedTimelineViewModel
 import xyz.hidasy.pebblepinmanager.ui.SimulatedTimelineViewModelFactory
@@ -163,6 +174,7 @@ class MainActivity : ComponentActivity() {
                     onOpenNotificationSettings = ::openNotificationSettings,
                     onOpenOverlaySettings = ::openOverlaySettings,
                     onOpenNotificationAccessSettings = ::openNotificationAccessSettings,
+                    onOpenPrivacyPolicyUrl = ::openPrivacyPolicyUrl,
                 )
             }
         }
@@ -230,6 +242,14 @@ class MainActivity : ComponentActivity() {
             runCatching { startActivity(checker.createFallbackSettingsIntent()) }
         }
     }
+
+    private fun openPrivacyPolicyUrl(): Boolean {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(PrivacyPolicyInfo.PRIVACY_POLICY_URL))
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+        return runCatching {
+            startActivity(intent)
+        }.isSuccess
+    }
 }
 
 @Composable
@@ -247,9 +267,12 @@ private fun PebblePinManagerRoot(
     onOpenNotificationSettings: () -> Unit,
     onOpenOverlaySettings: () -> Unit,
     onOpenNotificationAccessSettings: () -> Unit,
+    onOpenPrivacyPolicyUrl: () -> Boolean,
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.COMPOSE) }
     var showAppSettingsDialog by rememberSaveable { mutableStateOf(false) }
+    var showPrivacyPolicyDialog by rememberSaveable { mutableStateOf(false) }
+    var privacyPolicyOpenFailed by rememberSaveable { mutableStateOf(false) }
     val notificationState by notificationSettingsViewModel.uiState.collectAsStateWithLifecycle()
     val simulatedTimelineState by simulatedTimelineViewModel.uiState.collectAsStateWithLifecycle()
     val devModeState = devModeViewModel?.uiState?.collectAsStateWithLifecycle()?.value
@@ -406,7 +429,25 @@ private fun PebblePinManagerRoot(
         AppSettingsDialog(
             runWithoutWatch = appSettings.runWithoutWatch,
             onRunWithoutWatchChange = onSetRunWithoutWatch,
+            onOpenPrivacyPolicy = {
+                showAppSettingsDialog = false
+                privacyPolicyOpenFailed = false
+                showPrivacyPolicyDialog = true
+            },
             onDismiss = { showAppSettingsDialog = false },
+        )
+    }
+
+    if (showPrivacyPolicyDialog) {
+        PrivacyPolicyDialog(
+            openOnlineFailed = privacyPolicyOpenFailed,
+            onOpenOnline = {
+                privacyPolicyOpenFailed = !onOpenPrivacyPolicyUrl()
+            },
+            onDismiss = {
+                showPrivacyPolicyDialog = false
+                privacyPolicyOpenFailed = false
+            },
         )
     }
 }
@@ -415,6 +456,7 @@ private fun PebblePinManagerRoot(
 private fun AppSettingsDialog(
     runWithoutWatch: Boolean,
     onRunWithoutWatchChange: (Boolean) -> Unit,
+    onOpenPrivacyPolicy: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -452,6 +494,42 @@ private fun AppSettingsDialog(
                         text = "Watchless mode is active. Use the Timeline tab in the bottom bar to inspect captured pins and PebbleKit 2 payloads.",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(role = Role.Button, onClick = onOpenPrivacyPolicy)
+                        .padding(vertical = 8.dp, horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Policy,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = "Privacy Policy",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "100% local, zero data collection. View summary or open full policy.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

@@ -1,6 +1,9 @@
 # Privacy Policy for PebblePinManager
 
 **Effective Date:** November 23, 2026  
+**Developer:** Gabriel Hidasy  
+**Privacy Contact:** [gabrielhidasy+play@gmail.com](mailto:gabrielhidasy+play@gmail.com)  
+**Hosted Privacy Policy:** [https://pebblepinmanager.hidasy.xyz/privacy](https://pebblepinmanager.hidasy.xyz/privacy)  
 **Applies to:** PebblePinManager Android app (`xyz.hidasy.pebblepinmanager`) and the companion Pebble watchapp (`e4b7c3a1-8f2d-4c6e-9a51-7b3d2e8f1042`).
 
 ## Summary
@@ -22,6 +25,13 @@ If you have enabled Android's system-level device backup on your phone, Android 
 PebblePinManager uses **PebbleKit Android 2** (`libpebble3`) local Android IPC to discover an installed Pebble companion app on your phone (such as the Core Devices Pebble app or microPebble), inspect connected watch status, insert/update/delete Timeline pins, and exchange AppMessages with the companion watchapp over your phone's local Bluetooth connection.
 
 The companion Pebble watchapp requests only the `Timeline` and `PebbleKit2` permissions required to authorize those local pin and AppMessage operations, and holds recent pin summaries only transiently in watch memory while displayed. No external servers or cloud relays are used.
+
+### 3. Installed Launchable Apps List (Opt-In Auto-Pins Allowlist)
+When you configure the opt-in **Auto-Pins** feature, PebblePinManager queries the list of launchable apps installed on your Android device (`ACTION_MAIN` / `CATEGORY_LAUNCHER` via Android's scoped `<queries>` package visibility — the app does **not** request `QUERY_ALL_PACKAGES`) so you can pick which apps are allowed to generate Pebble Timeline pins.
+
+- This installed-app query runs **strictly locally on-device** solely to display app names and package identifiers in the Auto-Pins allowlist picker.
+- Only the package names and rules for apps you explicitly choose to configure are stored locally in AndroidX DataStore on your device.
+- Your list of installed apps is **never transmitted off-device**, never uploaded to any server, and never shared with the developer or any third party.
 
 ## Android Permissions
 
@@ -56,8 +66,11 @@ Because PebblePinManager collects no personal information from any user, it does
 
 PebblePinManager is open-source software (MIT License), and its source code is publicly available for inspection at [github.com/gabrielhidasy/PebblePinManager](https://github.com/gabrielhidasy/PebblePinManager).
 
-If this Privacy Policy changes (for example, when new optional features are added), the updated version will be published in `PRIVACY.md` in the repository with a revised effective date.
+The canonical hosted version of this Privacy Policy is published at [https://pebblepinmanager.hidasy.xyz/privacy](https://pebblepinmanager.hidasy.xyz/privacy) and maintained in [`PRIVACY.md`](https://github.com/gabrielhidasy/PebblePinManager/blob/main/PRIVACY.md) in the public repository. If this Privacy Policy changes (for example, when new optional features are added), the updated version will be published at that URL with a revised effective date.
 
 ## Contact
 
-If you have questions or concerns about this Privacy Policy, please open an issue on GitHub at [github.com/gabrielhidasy/PebblePinManager/issues](https://github.com/gabrielhidasy/PebblePinManager/issues).
+**Developer:** Gabriel Hidasy  
+**Email:** [gabrielhidasy+play@gmail.com](mailto:gabrielhidasy+play@gmail.com)
+
+If you have questions, privacy requests, or concerns about this Privacy Policy, you can contact the developer directly by email at [gabrielhidasy+play@gmail.com](mailto:gabrielhidasy+play@gmail.com) or open an issue on GitHub at [github.com/gabrielhidasy/PebblePinManager/issues](https://github.com/gabrielhidasy/PebblePinManager/issues).
