@@ -1420,6 +1420,15 @@ def run_platform_e2e(
 
             open_settings_btn = adb.find_or_scroll(direction="down", text="Open Notification Access Settings")
             adb.tap(*open_settings_btn.center)
+            adb.wait_for_node(timeout=15.0, text="Notification Access Disclosure")
+            agree_btn = adb.wait_for_node(timeout=15.0, text="Agree & Open Settings")
+            time.sleep(1.0)
+            record_assertion(
+                "auto_pin_prominent_disclosure_shown",
+                True,
+                "Prominent Disclosure modal shown before opening Android Notification Access Settings",
+            )
+            adb.tap(*agree_btn.center)
             time.sleep(1.5)
 
             # Grant Notification Access while Android's real Notification Access Settings screen is shown

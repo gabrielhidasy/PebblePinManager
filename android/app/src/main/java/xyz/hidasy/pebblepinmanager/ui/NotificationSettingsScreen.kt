@@ -191,6 +191,7 @@ fun NotificationSettingsScreen(
     var editingAppRulesPackage by rememberSaveable { mutableStateOf<String?>(null) }
     var editingGlobalRule by remember { mutableStateOf<NotificationRegexRule?>(null) }
     var isAddingGlobalRule by remember { mutableStateOf(false) }
+    val notificationAccessDisclosure = rememberNotificationAccessDisclosureState()
 
     val pinPendingDelete = pinPendingDeleteId?.let { pendingId ->
         uiState.autoPins.firstOrNull { it.id == pendingId }
@@ -247,7 +248,7 @@ fun NotificationSettingsScreen(
                 allowedCount = uiState.allowedCount,
                 configuredAppRulesCount = uiState.configuredAppRulesCount,
                 autoPinCount = uiState.autoPinCount,
-                onOpenSettings = onOpenNotificationAccessSettings,
+                onOpenSettings = notificationAccessDisclosure::requestSettingsAccess,
             )
 
             RecentAutoPinsSection(
@@ -377,6 +378,17 @@ fun NotificationSettingsScreen(
                     Text("Cancel")
                 }
             },
+        )
+    }
+
+    if (notificationAccessDisclosure.isVisible) {
+        NotificationAccessDisclosureDialog(
+            includeDevModeDisclosure = uiState.isDevModeAvailable,
+            onAgreeAndOpenSettings = {
+                notificationAccessDisclosure.confirmAndOpenSettings(onOpenNotificationAccessSettings)
+            },
+            onCancel = notificationAccessDisclosure::cancel,
+            onDismissRequest = notificationAccessDisclosure::dismissWithoutConsent,
         )
     }
 }

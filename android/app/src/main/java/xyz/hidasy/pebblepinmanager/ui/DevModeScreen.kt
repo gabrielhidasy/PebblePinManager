@@ -172,6 +172,7 @@ fun DevModeScreen(
 ) {
     val selected = uiState.selectedNotification
     var showClearConfirm by rememberSaveable { mutableStateOf(false) }
+    val notificationAccessDisclosure = rememberNotificationAccessDisclosureState()
 
     BackHandler(enabled = selected != null) {
         onClearSelection()
@@ -242,7 +243,7 @@ fun DevModeScreen(
         if (selected == null) {
             RawNotificationsListContent(
                 uiState = uiState,
-                onOpenNotificationAccessSettings = onOpenNotificationAccessSettings,
+                onOpenNotificationAccessSettings = notificationAccessDisclosure::requestSettingsAccess,
                 onSnapshotActiveNotifications = onSnapshotActiveNotifications,
                 onSearchQueryChange = onSearchQueryChange,
                 onHideOngoingChange = onHideOngoingChange,
@@ -307,6 +308,17 @@ fun DevModeScreen(
                     Text("Cancel")
                 }
             },
+        )
+    }
+
+    if (notificationAccessDisclosure.isVisible) {
+        NotificationAccessDisclosureDialog(
+            includeDevModeDisclosure = true,
+            onAgreeAndOpenSettings = {
+                notificationAccessDisclosure.confirmAndOpenSettings(onOpenNotificationAccessSettings)
+            },
+            onCancel = notificationAccessDisclosure::cancel,
+            onDismissRequest = notificationAccessDisclosure::dismissWithoutConsent,
         )
     }
 }
