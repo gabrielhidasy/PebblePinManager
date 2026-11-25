@@ -27,6 +27,9 @@ object TimelineTimestampFormatter {
     private val localDateTimeFormatter: DateTimeFormatter =
         DateTimeFormatter.ofPattern("EEE, MMM d, yyyy 'at' HH:mm", Locale.US)
 
+    private val compactLocalDateTimeFormatter: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("MMM d, HH:mm", Locale.US)
+
     /**
      * Combines a local [date] and [time] in [zoneId] into UTC epoch milliseconds (truncated to seconds).
      */
@@ -82,6 +85,24 @@ object TimelineTimestampFormatter {
         val zoneShort = zoneId.getDisplayName(TextStyle.SHORT, locale)
         val offset = formatOffset(zoned.offset)
         return "${zoned.format(baseFormatter)} ($zoneShort, $offset)"
+    }
+
+    /**
+     * Formats [epochMillis] in [zoneId] as a compact local date/time for snackbar confirmations,
+     * e.g. `Nov 21, 14:30`.
+     */
+    fun formatCompactLocalDateTime(
+        epochMillis: Long,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        locale: Locale = Locale.getDefault(),
+    ): String {
+        val zoned = Instant.ofEpochMilli(epochMillis).atZone(zoneId)
+        val formatter = if (locale == Locale.US) {
+            compactLocalDateTimeFormatter
+        } else {
+            DateTimeFormatter.ofPattern("MMM d, HH:mm", locale)
+        }
+        return zoned.format(formatter)
     }
 
     fun formatZoneLabel(

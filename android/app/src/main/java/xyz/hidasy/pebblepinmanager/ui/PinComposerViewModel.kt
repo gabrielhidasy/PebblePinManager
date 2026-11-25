@@ -45,6 +45,10 @@ class PinComposerViewModel(
     private val _uiState: MutableStateFlow<PinComposerUiState> = MutableStateFlow(initialState())
     val uiState: StateFlow<PinComposerUiState> = _uiState.asStateFlow()
 
+    private var nextFeedbackEventId: Long = 0L
+
+    private fun nextEventId(): Long = ++nextFeedbackEventId
+
     init {
         refreshCompanionStatus()
         observeConnectedWatches()
@@ -127,6 +131,7 @@ class PinComposerViewModel(
                 title = newTitle,
                 titleError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -137,6 +142,7 @@ class PinComposerViewModel(
                 description = newDescription,
                 descriptionError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -147,6 +153,7 @@ class PinComposerViewModel(
                 selectedDate = date,
                 timeError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -157,6 +164,7 @@ class PinComposerViewModel(
                 selectedTime = time.truncatedTo(ChronoUnit.MINUTES),
                 timeError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -166,6 +174,7 @@ class PinComposerViewModel(
             it.copy(
                 selectedIcon = icon,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -176,6 +185,7 @@ class PinComposerViewModel(
                 durationInput = newDuration,
                 durationError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -186,6 +196,7 @@ class PinComposerViewModel(
                 durationInput = minutes?.toString().orEmpty(),
                 durationError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -195,6 +206,7 @@ class PinComposerViewModel(
             it.copy(
                 selectedBackgroundColor = color,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -209,6 +221,7 @@ class PinComposerViewModel(
                 selectedTime = now.toLocalTime(),
                 timeError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -224,6 +237,7 @@ class PinComposerViewModel(
                 selectedTime = target.toLocalTime(),
                 timeError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -236,12 +250,13 @@ class PinComposerViewModel(
                 selectedTime = LocalTime.of(hour, minute),
                 timeError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
 
     fun dismissFeedback() {
-        _uiState.update { it.copy(feedback = null) }
+        _uiState.update { it.copy(feedback = null, sendConfirmation = null) }
     }
 
     fun startEditingPin(record: SentPinRecord) {
@@ -264,6 +279,7 @@ class PinComposerViewModel(
                 timeError = null,
                 durationError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -287,6 +303,7 @@ class PinComposerViewModel(
                 timeError = null,
                 durationError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
     }
@@ -357,6 +374,7 @@ class PinComposerViewModel(
                 timeError = null,
                 durationError = null,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
 
@@ -377,33 +395,119 @@ class PinComposerViewModel(
                         epochMillis = validatedEvent.startTimeMillis,
                         zoneId = current.zoneId,
                     )
-                    val durationSuffix = validatedEvent.durationMinutes
-                        ?.let { " (${PinDurationFormatter.formatMinutes(it)})" }
+                    val compactWhen = TimelineTimestampFormatter.formatCompactLocalDateTime(
+                        epochMillis = validatedEvent.startTimeMillis,
+                        zoneId = current.zoneId,
+                    )
+                    val durationLabel = validatedEvent.durationMinutes
+                        ?.let { PinDurationFormatter.formatMinutes(it) }
+                    val durationSuffix = durationLabel
+                        ?.let { " ($it)" }
                         .orEmpty()
                     val isSimulated = updatedStatus is PebbleCompanionStatus.SimulatedNoWatch ||
                         _uiState.value.isRunWithoutWatch
-                    val watchSummary = if (isSimulated) {
-                        "Captured locally in watchless mode — inspect it on the Timeline tab."
+                    val connectedWatches = _uiState.value.connectedWatches
+                    val deliveryStatus = when {
+                        isSimulated -> PinDeliveryStatus.SIMULATED
+                        connectedWatches.isNotEmpty() -> PinDeliveryStatus.SENT_TO_WATCH
+                        else -> PinDeliveryStatus.QUEUED_FOR_WATCH
+                    }
+                    val action = if (isUpdate) {
+                        PinConfirmationAction.UPDATED
                     } else {
-                        _uiState.value.connectedWatches
-                            .takeIf { it.isNotEmpty() }
-                            ?.joinToString { it.displayLabel }
-                            ?.let { "Synced via Pebble app (connected: $it)." }
-                            ?: "Queued in the Pebble companion app. It will appear on your watch once connected."
+                        PinConfirmationAction.CREATED
+                    }
+                    val connectedWatchNames = connectedWatches
+                        .takeIf { it.isNotEmpty() }
+                        ?.joinToString { it.name }
+                    val watchSummary = when (deliveryStatus) {
+                        PinDeliveryStatus.SIMULATED ->
+                            "Captured locally in watchless mode — inspect it on the Timeline tab."
+                        PinDeliveryStatus.SENT_TO_WATCH ->
+                            "Synced via Pebble app (connected: ${connectedWatches.joinToString { it.displayLabel }})."
+                        PinDeliveryStatus.QUEUED_FOR_WATCH ->
+                            "Queued in the Pebble companion app. It will appear on your watch once connected."
                     }
 
                     val resetTime = if (isUpdate) defaultZonedDateTime() else null
-                    val headline = when {
-                        isSimulated && isUpdate -> "Pin updated in Simulated Timeline"
-                        isSimulated -> "Pin added to Simulated Timeline"
-                        isUpdate -> "Pin updated on Pebble Timeline"
-                        else -> "Pin sent to Pebble Timeline"
+                    val headline = when (deliveryStatus) {
+                        PinDeliveryStatus.SIMULATED -> if (isUpdate) {
+                            "Pin updated in Simulated Timeline"
+                        } else {
+                            "Pin added to Simulated Timeline"
+                        }
+                        PinDeliveryStatus.SENT_TO_WATCH -> if (isUpdate) {
+                            "Pin updated on Pebble Timeline"
+                        } else {
+                            "Pin sent to Pebble Timeline"
+                        }
+                        PinDeliveryStatus.QUEUED_FOR_WATCH -> if (isUpdate) {
+                            "Pin updated (queued for Pebble)"
+                        } else {
+                            "Pin queued for Pebble Timeline"
+                        }
+                    }
+                    val snackbarTitle = when (deliveryStatus) {
+                        PinDeliveryStatus.SIMULATED -> if (isUpdate) {
+                            "Pin updated in Simulated Timeline"
+                        } else {
+                            "Pin added to Simulated Timeline"
+                        }
+                        PinDeliveryStatus.SENT_TO_WATCH -> if (isUpdate) {
+                            "Pin updated on Pebble"
+                        } else {
+                            "Pin sent to Pebble"
+                        }
+                        PinDeliveryStatus.QUEUED_FOR_WATCH -> if (isUpdate) {
+                            "Pin updated (queued for Pebble)"
+                        } else {
+                            "Pin queued for Pebble"
+                        }
+                    }
+                    val snackbarStatusLabel = when (deliveryStatus) {
+                        PinDeliveryStatus.SIMULATED -> "Watchless mode"
+                        PinDeliveryStatus.SENT_TO_WATCH -> connectedWatchNames ?: "Pebble Watch"
+                        PinDeliveryStatus.QUEUED_FOR_WATCH -> "Syncs when watch connects"
+                    }
+                    val snackbarDetails = "\"${validatedEvent.title}\" • $compactWhen$durationSuffix • $snackbarStatusLabel"
+                    val buttonLabel = when (deliveryStatus) {
+                        PinDeliveryStatus.SIMULATED -> if (isUpdate) {
+                            "Updated in Timeline"
+                        } else {
+                            "Added to Timeline"
+                        }
+                        PinDeliveryStatus.SENT_TO_WATCH -> if (isUpdate) {
+                            "Updated on Pebble"
+                        } else {
+                            "Sent to Pebble"
+                        }
+                        PinDeliveryStatus.QUEUED_FOR_WATCH -> if (isUpdate) {
+                            "Update Queued"
+                        } else {
+                            "Queued for Pebble"
+                        }
                     }
                     val details = if (isUpdate) {
                         "\"${validatedEvent.title}\" (${result.pinId}) updated for $localWhen$durationSuffix. $watchSummary"
                     } else {
                         "\"${validatedEvent.title}\" scheduled for $localWhen$durationSuffix. $watchSummary"
                     }
+                    val eventId = nextEventId()
+                    val confirmation = PinSendConfirmation(
+                        eventId = eventId,
+                        pinId = result.pinId,
+                        title = validatedEvent.title,
+                        formattedWhen = compactWhen,
+                        durationLabel = durationLabel,
+                        action = action,
+                        deliveryStatus = deliveryStatus,
+                        connectedWatchSummary = connectedWatchNames,
+                        isAutoPin = editingPin?.isAutoPin == true,
+                        headline = headline,
+                        snackbarTitle = snackbarTitle,
+                        snackbarDetails = snackbarDetails,
+                        buttonLabel = buttonLabel,
+                    )
 
                     _uiState.update {
                         it.copy(
@@ -418,6 +522,8 @@ class PinComposerViewModel(
                             editingPin = null,
                             isSending = false,
                             companionStatus = updatedStatus,
+                            feedbackEventId = eventId,
+                            sendConfirmation = confirmation,
                             feedback = SendFeedback.Success(
                                 pinId = result.pinId,
                                 headline = headline,
@@ -428,10 +534,13 @@ class PinComposerViewModel(
                 }
 
                 PinSendResult.NoPebbleApp -> {
+                    val eventId = nextEventId()
                     _uiState.update {
                         it.copy(
                             isSending = false,
                             companionStatus = updatedStatus,
+                            feedbackEventId = eventId,
+                            sendConfirmation = null,
                             feedback = SendFeedback.Error(
                                 headline = "Pebble companion app not available",
                                 details = "Install or open the Core Devices Pebble app (v1.0.7.7+) or microPebble and make sure PebbleKit 2 is reachable.",
@@ -441,10 +550,13 @@ class PinComposerViewModel(
                 }
 
                 is PinSendResult.NoPermissions -> {
+                    val eventId = nextEventId()
                     _uiState.update {
                         it.copy(
                             isSending = false,
                             companionStatus = updatedStatus,
+                            feedbackEventId = eventId,
+                            sendConfirmation = null,
                             feedback = SendFeedback.Error(
                                 headline = "Companion app permission denied",
                                 details = "The Pebble companion app rejected timeline access for watchapp UUID ${result.watchappUuid}. Verify the watchapp's package.json authorizes this Android package.",
@@ -454,10 +566,13 @@ class PinComposerViewModel(
                 }
 
                 PinSendResult.UnsupportedAction -> {
+                    val eventId = nextEventId()
                     _uiState.update {
                         it.copy(
                             isSending = false,
                             companionStatus = updatedStatus,
+                            feedbackEventId = eventId,
+                            sendConfirmation = null,
                             feedback = SendFeedback.Error(
                                 headline = "Timeline pins unsupported by installed Pebble app",
                                 details = "Update your Core Devices Pebble app or microPebble to a version supporting PebbleKit Android 2 timeline pins.",
@@ -467,10 +582,13 @@ class PinComposerViewModel(
                 }
 
                 is PinSendResult.UnexpectedError -> {
+                    val eventId = nextEventId()
                     _uiState.update {
                         it.copy(
                             isSending = false,
                             companionStatus = updatedStatus,
+                            feedbackEventId = eventId,
+                            sendConfirmation = null,
                             feedback = SendFeedback.Error(
                                 headline = if (isUpdate) {
                                     "Failed to update timeline pin"
@@ -499,6 +617,7 @@ class PinComposerViewModel(
             it.copy(
                 deletingPinId = sanitizedId,
                 feedback = null,
+                sendConfirmation = null,
             )
         }
 
@@ -548,10 +667,13 @@ class PinComposerViewModel(
                 }
 
                 PinDeleteResult.NoPebbleApp -> {
+                    val eventId = nextEventId()
                     _uiState.update {
                         it.copy(
                             deletingPinId = null,
                             companionStatus = updatedStatus,
+                            feedbackEventId = eventId,
+                            sendConfirmation = null,
                             feedback = SendFeedback.Error(
                                 headline = "Pebble companion app not available",
                                 details = "Install or open the Core Devices Pebble app (v1.0.7.7+) or microPebble and make sure PebbleKit 2 is reachable.",
@@ -561,10 +683,13 @@ class PinComposerViewModel(
                 }
 
                 is PinDeleteResult.NoPermissions -> {
+                    val eventId = nextEventId()
                     _uiState.update {
                         it.copy(
                             deletingPinId = null,
                             companionStatus = updatedStatus,
+                            feedbackEventId = eventId,
+                            sendConfirmation = null,
                             feedback = SendFeedback.Error(
                                 headline = "Companion app permission denied",
                                 details = "The Pebble companion app rejected timeline delete access for watchapp UUID ${result.watchappUuid}. Verify the watchapp's package.json authorizes this Android package.",
@@ -574,10 +699,13 @@ class PinComposerViewModel(
                 }
 
                 PinDeleteResult.UnsupportedAction -> {
+                    val eventId = nextEventId()
                     _uiState.update {
                         it.copy(
                             deletingPinId = null,
                             companionStatus = updatedStatus,
+                            feedbackEventId = eventId,
+                            sendConfirmation = null,
                             feedback = SendFeedback.Error(
                                 headline = "Timeline deletion unsupported by installed Pebble app",
                                 details = "Update your Core Devices Pebble app or microPebble to a version supporting PebbleKit Android 2 timeline deletion.",
@@ -587,10 +715,13 @@ class PinComposerViewModel(
                 }
 
                 is PinDeleteResult.UnexpectedError -> {
+                    val eventId = nextEventId()
                     _uiState.update {
                         it.copy(
                             deletingPinId = null,
                             companionStatus = updatedStatus,
+                            feedbackEventId = eventId,
+                            sendConfirmation = null,
                             feedback = SendFeedback.Error(
                                 headline = "Failed to delete timeline pin",
                                 details = result.message,
@@ -616,6 +747,7 @@ class PinComposerViewModel(
         feedback: SendFeedback,
     ) {
         val resetTime = defaultZonedDateTime()
+        val eventId = nextEventId()
         _uiState.update { state ->
             val wasEditingDeleted = state.editingPin?.id == deletedPinId
             state.copy(
@@ -633,6 +765,8 @@ class PinComposerViewModel(
                 durationError = if (wasEditingDeleted) null else state.durationError,
                 deletingPinId = null,
                 companionStatus = updatedStatus,
+                feedbackEventId = eventId,
+                sendConfirmation = null,
                 feedback = feedback,
             )
         }
@@ -657,6 +791,7 @@ class PinComposerViewModel(
         val fallbackError = errors.firstOrNull()?.message
             ?: extraDurationError
             ?: "Please check the event details."
+        val eventId = nextEventId()
 
         _uiState.update {
             it.copy(
@@ -664,6 +799,8 @@ class PinComposerViewModel(
                 descriptionError = descriptionError,
                 timeError = timeError,
                 durationError = durationError,
+                feedbackEventId = eventId,
+                sendConfirmation = null,
                 feedback = SendFeedback.Error(
                     headline = "Check event details",
                     details = fallbackError,

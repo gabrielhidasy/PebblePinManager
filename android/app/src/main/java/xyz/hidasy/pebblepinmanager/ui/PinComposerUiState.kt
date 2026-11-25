@@ -32,6 +32,8 @@ data class PinComposerUiState(
     val editingPin: SentPinRecord? = null,
     val deletingPinId: String? = null,
     val feedback: SendFeedback? = null,
+    val feedbackEventId: Long = 0L,
+    val sendConfirmation: PinSendConfirmation? = null,
     val sentPins: List<SentPinRecord> = emptyList(),
 ) {
     val editingPinId: String?
@@ -75,6 +77,38 @@ data class PinComposerUiState(
     val effectiveBackgroundColor: PinAccentColor?
         get() = if (supportsColorBackground) selectedBackgroundColor else null
 }
+
+enum class PinDeliveryStatus {
+    /** Delivered via Pebble companion app with one or more connected Pebble watches. */
+    SENT_TO_WATCH,
+
+    /** Queued in the Pebble companion app while no watch is currently connected. */
+    QUEUED_FOR_WATCH,
+
+    /** Captured locally in "Run without a watch" simulated timeline mode. */
+    SIMULATED,
+}
+
+enum class PinConfirmationAction {
+    CREATED,
+    UPDATED,
+}
+
+data class PinSendConfirmation(
+    val eventId: Long,
+    val pinId: String,
+    val title: String,
+    val formattedWhen: String,
+    val durationLabel: String? = null,
+    val action: PinConfirmationAction,
+    val deliveryStatus: PinDeliveryStatus,
+    val connectedWatchSummary: String? = null,
+    val isAutoPin: Boolean = false,
+    val headline: String,
+    val snackbarTitle: String,
+    val snackbarDetails: String,
+    val buttonLabel: String,
+)
 
 sealed interface SendFeedback {
     val headline: String

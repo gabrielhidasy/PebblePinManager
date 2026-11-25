@@ -814,6 +814,191 @@ class PinComposerViewModelTest {
         assertEquals("Pin deleted from Simulated Timeline", deleteFeedback.headline)
         assertTrue(vm.uiState.value.sentPins.isEmpty())
     }
+
+    @Test
+    fun `sendPin populates structured watch-connected confirmation with title, time, duration, and event ID`() = runTest {
+        val emeryWatch = ConnectedPebbleWatch(
+            id = "w-emery",
+            name = "My Pebble Time 2",
+            platformCode = "emery",
+            platform = PebbleHardwarePlatform.EMERY,
+            revision = "robert",
+            firmwareVersion = "4.9.0",
+        )
+        val sender = StubTimelinePinSender(watches = listOf(emeryWatch))
+        val repo = StubSentPinRepository()
+        val vm = PinComposerViewModel(sender, repo, fixedClock) { "ppm-confirm-watch" }
+        advanceUntilIdle()
+
+        vm.onTitleChange("Dentist Visit")
+        vm.onDateSelected(LocalDate.of(2026, 11, 21))
+        vm.onTimeSelected(LocalTime.of(15, 30))
+        vm.onDurationInputChange("45")
+        vm.sendPin()
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        val confirmation = state.sendConfirmation
+        assertNotNull(confirmation)
+        assertEquals(state.feedbackEventId, confirmation!!.eventId)
+        assertTrue(confirmation.eventId > 0L)
+        assertEquals("ppm-confirm-watch", confirmation.pinId)
+        assertEquals("Dentist Visit", confirmation.title)
+        assertEquals("45 min", confirmation.durationLabel)
+        assertEquals(PinConfirmationAction.CREATED, confirmation.action)
+        assertEquals(PinDeliveryStatus.SENT_TO_WATCH, confirmation.deliveryStatus)
+        assertEquals("My Pebble Time 2", confirmation.connectedWatchSummary)
+        assertEquals("Pin sent to Pebble", confirmation.snackbarTitle)
+        assertTrue(confirmation.snackbarDetails.contains("\"Dentist Visit\""))
+        assertTrue(confirmation.snackbarDetails.contains("15:30"))
+        assertTrue(confirmation.snackbarDetails.contains("45 min"))
+        assertTrue(confirmation.snackbarDetails.contains("My Pebble Time 2"))
+        assertEquals("Sent to Pebble", confirmation.buttonLabel)
+    }
+
+    @Test
+    fun `sendPin distinguishes queued watch-disconnected confirmation for both create and update`() = runTest {
+        val sender = StubTimelinePinSender(watches = emptyList())
+        val repo = StubSentPinRepository()
+        val vm = PinComposerViewModel(sender, repo, fixedClock) { "ppm-queued-1" }
+        advanceUntilIdle()
+
+        vm.onTitleChange("Pick up groceries")
+        vm.onDateSelected(LocalDate.of(2026, 11, 21))
+        vm.onTimeSelected(LocalTime.of(17, 0))
+        vm.sendPin()
+        advanceUntilIdle()
+
+        val createdState = vm.uiState.value
+        val createdConfirmation = createdState.sendConfirmation
+        assertNotNull(createdConfirmation)
+        assertEquals(PinConfirmationAction.CREATED, createdConfirmation!!.action)
+        assertEquals(PinDeliveryStatus.QUEUED_FOR_WATCH, createdConfirmation.deliveryStatus)
+        assertEquals("Pin queued for Pebble Timeline", (createdState.feedback as SendFeedback.Success).headline)
+        assertEquals("Pin queued for Pebble", createdConfirmation.snackbarTitle)
+        assertTrue(createdConfirmation.snackbarDetails.contains("\"Pick up groceries\""))
+        assertTrue(createdConfirmation.snackbarDetails.contains("17:00"))
+        assertTrue(createdConfirmation.snackbarDetails.contains("Syncs when watch connects"))
+        assertEquals("Queued for Pebble", createdConfirmation.buttonLabel)
+
+        val createdEventId = createdState.feedbackEventId
+        val savedRecord = createdState.sentPins.single()
+
+        vm.startEditingPin(savedRecord)
+        assertNull(vm.uiState.value.sendConfirmation)
+        assertEquals(createdEventId, vm.uiState.value.feedbackEventId)
+
+        vm.onTitleChange("Pick up groceries & bread")
+        vm.sendPin()
+        advanceUntilIdle()
+
+        val updatedState = vm.uiState.value
+        val updatedConfirmation = updatedState.sendConfirmation
+        assertNotNull(updatedConfirmation)
+        assertTrue(updatedState.feedbackEventId > createdEventId)
+        assertEquals(updatedState.feedbackEventId, updatedConfirmation!!.eventId)
+        assertEquals(PinConfirmationAction.UPDATED, updatedConfirmation.action)
+        assertEquals(PinDeliveryStatus.QUEUED_FOR_WATCH, updatedConfirmation.deliveryStatus)
+        assertEquals("Pin updated (queued for Pebble)", (updatedState.feedback as SendFeedback.Success).headline)
+        assertEquals("Pin updated (queued for Pebble)", updatedConfirmation.snackbarTitle)
+        assertTrue(updatedConfirmation.snackbarDetails.contains("\"Pick up groceries & bread\""))
+        assertTrue(updatedConfirmation.snackbarDetails.contains("Syncs when watch connects"))
+        assertEquals("Update Queued", updatedConfirmation.buttonLabel)
+    }
+
+    @Test
+    fun `simulated watch mode emits distinct send and update confirmations`() = runTest {
+        val modeFlow = MutableStateFlow(true)
+        val sender = StubTimelinePinSender(
+            companionStatus = PebbleCompanionStatus.SimulatedNoWatch,
+            watches = emptyList(),
+        )
+        val repo = StubSentPinRepository()
+        val vm = PinComposerViewModel(
+            pinSender = sender,
+            repository = repo,
+            clock = fixedClock,
+            runWithoutWatchFlow = modeFlow,
+            pinIdGenerator = { "ppm-sim-1" },
+        )
+        advanceUntilIdle()
+
+        vm.onTitleChange("Simulated Demo")
+        vm.onDateSelected(LocalDate.of(2026, 11, 21))
+        vm.onTimeSelected(LocalTime.of(14, 15))
+        vm.sendPin()
+        advanceUntilIdle()
+
+        val createdConfirmation = vm.uiState.value.sendConfirmation
+        assertNotNull(createdConfirmation)
+        assertEquals(PinConfirmationAction.CREATED, createdConfirmation!!.action)
+        assertEquals(PinDeliveryStatus.SIMULATED, createdConfirmation.deliveryStatus)
+        assertEquals("Pin added to Simulated Timeline", createdConfirmation.snackbarTitle)
+        assertTrue(createdConfirmation.snackbarDetails.contains("\"Simulated Demo\""))
+        assertTrue(createdConfirmation.snackbarDetails.contains("14:15"))
+        assertTrue(createdConfirmation.snackbarDetails.contains("Watchless mode"))
+        assertEquals("Added to Timeline", createdConfirmation.buttonLabel)
+
+        val savedRecord = vm.uiState.value.sentPins.single()
+        vm.startEditingPin(savedRecord)
+        vm.onTitleChange("Simulated Demo (Edited)")
+        vm.sendPin()
+        advanceUntilIdle()
+
+        val updatedConfirmation = vm.uiState.value.sendConfirmation
+        assertNotNull(updatedConfirmation)
+        assertEquals(PinConfirmationAction.UPDATED, updatedConfirmation!!.action)
+        assertEquals(PinDeliveryStatus.SIMULATED, updatedConfirmation.deliveryStatus)
+        assertEquals("Pin updated in Simulated Timeline", updatedConfirmation.snackbarTitle)
+        assertTrue(updatedConfirmation.snackbarDetails.contains("\"Simulated Demo (Edited)\""))
+        assertTrue(updatedConfirmation.snackbarDetails.contains("Watchless mode"))
+        assertEquals("Updated in Timeline", updatedConfirmation.buttonLabel)
+    }
+
+    @Test
+    fun `typing after send clears button confirmation while preserving feedbackEventId and errors never emit sendConfirmation`() = runTest {
+        val sender = StubTimelinePinSender(
+            sendResult = PinSendResult.Success("ppm-seq-1"),
+            watches = listOf(
+                ConnectedPebbleWatch(
+                    id = "w-basalt",
+                    name = "Pebble Time",
+                    platformCode = "basalt",
+                    platform = PebbleHardwarePlatform.BASALT,
+                    revision = "snowy",
+                    firmwareVersion = "4.3.0",
+                ),
+            ),
+        )
+        val repo = StubSentPinRepository()
+        val vm = PinComposerViewModel(sender, repo, fixedClock) { "ppm-seq-1" }
+        advanceUntilIdle()
+
+        vm.onTitleChange("First Pin")
+        vm.sendPin()
+        advanceUntilIdle()
+
+        val firstEventId = vm.uiState.value.feedbackEventId
+        assertTrue(firstEventId > 0L)
+        assertNotNull(vm.uiState.value.sendConfirmation)
+
+        // Starting to type next pin clears button confirmation & inline feedback without resetting feedbackEventId
+        vm.onTitleChange("   ")
+        assertNull(vm.uiState.value.sendConfirmation)
+        assertNull(vm.uiState.value.feedback)
+        assertEquals(firstEventId, vm.uiState.value.feedbackEventId)
+
+        // Validation error increments feedbackEventId, preserves user input, and does NOT set sendConfirmation
+        vm.sendPin()
+        advanceUntilIdle()
+
+        val errorState = vm.uiState.value
+        assertTrue(errorState.feedbackEventId > firstEventId)
+        assertNull(errorState.sendConfirmation)
+        assertTrue(errorState.feedback is SendFeedback.Error)
+        assertEquals("   ", errorState.title)
+        assertNotNull(errorState.titleError)
+    }
 }
 
 private class StubTimelinePinSender(

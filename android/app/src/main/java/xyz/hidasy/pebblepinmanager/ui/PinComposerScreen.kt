@@ -1,5 +1,17 @@
 package xyz.hidasy.pebblepinmanager.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -71,6 +83,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -78,14 +93,25 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -98,7 +124,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import xyz.hidasy.pebblepinmanager.data.SentPinRecord
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinDurationFormatter
@@ -191,6 +220,7 @@ fun PinComposerScreen(
     onOpenSettings: () -> Unit = {},
     onSetRunWithoutWatch: ((Boolean) -> Unit)? = null,
     onOpenSimulatedTimeline: (() -> Unit)? = null,
+    onConfirmationHaptic: (() -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -203,8 +233,74 @@ fun PinComposerScreen(
     }
     val composerScrollState = rememberScrollState()
     val sentPinsScrollState = rememberScrollState()
+    val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    val view = LocalView.current
+    val composeHapticFeedback = LocalHapticFeedback.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val currentOnOpenSimulatedTimeline by rememberUpdatedState(onOpenSimulatedTimeline)
+    val currentOnConfirmationHaptic by rememberUpdatedState(onConfirmationHaptic)
+
+    var lastHandledFeedbackEventId by rememberSaveable { mutableStateOf(0L) }
+    var activeButtonConfirmation by remember { mutableStateOf<PinSendConfirmation?>(null) }
+    var recentPinsTopPx by remember { mutableIntStateOf(0) }
+    var currentLayoutMode by remember { mutableStateOf(PinComposerLayoutMode.SINGLE_PANE) }
+    val snackbarJob = remember { mutableStateOf<Job?>(null) }
+    val buttonPulseJob = remember { mutableStateOf<Job?>(null) }
     val isBusy = uiState.isSending || uiState.deletingPinId != null
+
+    LaunchedEffect(uiState.sendConfirmation, uiState.isSending) {
+        if (uiState.sendConfirmation == null || uiState.isSending) {
+            buttonPulseJob.value?.cancel()
+            activeButtonConfirmation = null
+        }
+    }
+
+    LaunchedEffect(uiState.feedbackEventId) {
+        val eventId = uiState.feedbackEventId
+        if (eventId <= 0L || eventId <= lastHandledFeedbackEventId) return@LaunchedEffect
+        lastHandledFeedbackEventId = eventId
+
+        val confirmation = uiState.sendConfirmation?.takeIf { it.eventId == eventId }
+        if (confirmation != null) {
+            currentOnConfirmationHaptic?.invoke()
+                ?: performPinConfirmationHaptic(view, composeHapticFeedback)
+            keyboardController?.hide()
+            focusManager.clearFocus(force = true)
+
+            activeButtonConfirmation = confirmation
+            buttonPulseJob.value?.cancel()
+            buttonPulseJob.value = coroutineScope.launch {
+                delay(CONFIRMATION_BUTTON_PULSE_MS)
+                if (activeButtonConfirmation?.eventId == eventId) {
+                    activeButtonConfirmation = null
+                }
+            }
+        }
+
+        val visuals = PinComposerFeedbackMapper.toSnackbarVisuals(
+            uiState = uiState,
+            canOpenSimulatedTimeline = currentOnOpenSimulatedTimeline != null,
+        )
+        if (visuals != null) {
+            snackbarJob.value?.cancel()
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarJob.value = coroutineScope.launch {
+                val result = snackbarHostState.showSnackbar(visuals)
+                if (result == SnackbarResult.ActionPerformed && confirmation != null) {
+                    val openSimulated = currentOnOpenSimulatedTimeline
+                    if (confirmation.deliveryStatus == PinDeliveryStatus.SIMULATED && openSimulated != null) {
+                        openSimulated()
+                    } else if (currentLayoutMode == PinComposerLayoutMode.TWO_PANE) {
+                        sentPinsScrollState.animateScrollTo(0)
+                    } else {
+                        composerScrollState.animateScrollTo(recentPinsTopPx)
+                    }
+                }
+            }
+        }
+    }
 
     val handleEditPin: (SentPinRecord) -> Unit = { record ->
         onEditPin(record)
@@ -213,6 +309,14 @@ fun PinComposerScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.imePadding(),
+            ) { snackbarData ->
+                PinFeedbackSnackbar(snackbarData = snackbarData)
+            }
+        },
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
@@ -278,6 +382,9 @@ fun PinComposerScreen(
                 availableWidthDp = maxWidth.value,
                 availableHeightDp = maxHeight.value,
             )
+            LaunchedEffect(layoutMode) {
+                currentLayoutMode = layoutMode
+            }
 
             when (layoutMode) {
                 PinComposerLayoutMode.SINGLE_PANE -> {
@@ -307,6 +414,7 @@ fun PinComposerScreen(
                             uiState = uiState,
                             isBusy = isBusy,
                             isTwoPane = false,
+                            activeButtonConfirmation = activeButtonConfirmation,
                             onTitleChange = onTitleChange,
                             onDescriptionChange = onDescriptionChange,
                             onOpenDatePicker = { showDatePicker = true },
@@ -323,16 +431,22 @@ fun PinComposerScreen(
                         )
 
                         if (uiState.sentPins.isNotEmpty()) {
-                            RecentSentPinsSection(
-                                sentPins = uiState.sentPins,
-                                zoneId = uiState.zoneId,
-                                editingPinId = uiState.editingPinId,
-                                deletingPinId = uiState.deletingPinId,
-                                isBusy = isBusy,
-                                isTwoPane = false,
-                                onEditPin = handleEditPin,
-                                onRequestDeletePin = { record -> pinPendingDeleteId = record.id },
-                            )
+                            Box(
+                                modifier = Modifier.onGloballyPositioned { coordinates ->
+                                    recentPinsTopPx = coordinates.positionInParent().y.roundToInt()
+                                },
+                            ) {
+                                RecentSentPinsSection(
+                                    sentPins = uiState.sentPins,
+                                    zoneId = uiState.zoneId,
+                                    editingPinId = uiState.editingPinId,
+                                    deletingPinId = uiState.deletingPinId,
+                                    isBusy = isBusy,
+                                    isTwoPane = false,
+                                    onEditPin = handleEditPin,
+                                    onRequestDeletePin = { record -> pinPendingDeleteId = record.id },
+                                )
+                            }
                         }
                     }
                 }
@@ -371,6 +485,7 @@ fun PinComposerScreen(
                                 uiState = uiState,
                                 isBusy = isBusy,
                                 isTwoPane = true,
+                                activeButtonConfirmation = activeButtonConfirmation,
                                 onTitleChange = onTitleChange,
                                 onDescriptionChange = onDescriptionChange,
                                 onOpenDatePicker = { showDatePicker = true },
@@ -520,12 +635,21 @@ fun PinComposerScreen(
     }
 }
 
+private const val CONFIRMATION_BUTTON_PULSE_MS: Long = 1_800L
+
+private sealed interface SubmitButtonVisualState {
+    data object Sending : SubmitButtonVisualState
+    data class Confirmed(val confirmation: PinSendConfirmation) : SubmitButtonVisualState
+    data object Idle : SubmitButtonVisualState
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PinComposerCard(
     uiState: PinComposerUiState,
     isBusy: Boolean,
     isTwoPane: Boolean,
+    activeButtonConfirmation: PinSendConfirmation?,
     onTitleChange: (String) -> Unit,
     onDescriptionChange: (String) -> Unit,
     onOpenDatePicker: () -> Unit,
@@ -547,10 +671,26 @@ private fun PinComposerCard(
     }
     val dateButtonWeight = if (isTwoPane) 1.35f else 1.3f
     val timeButtonWeight = if (isTwoPane) 0.85f else 0.9f
+    var lastEditingLabel by remember { mutableStateOf<String?>(null) }
+    uiState.editingPin?.let { editing ->
+        lastEditingLabel = if (editing.isAutoPin) {
+            "Updating existing Auto-Pin ID: ${editing.id}"
+        } else {
+            "Updating existing Pin ID: ${editing.id}"
+        }
+    }
+    var lastNonNullFeedback by remember { mutableStateOf<SendFeedback?>(null) }
+    if (uiState.feedback != null) {
+        lastNonNullFeedback = uiState.feedback
+    }
 
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .padding(16.dp)
+                .animateContentSize(
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
@@ -558,12 +698,22 @@ private fun PinComposerCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = if (uiState.isEditing) "Edit Timeline Pin" else "New Timeline Pin",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (uiState.isEditing) {
+                AnimatedContent(
+                    targetState = uiState.isEditing,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "composerCardTitle",
+                ) { isEditing ->
+                    Text(
+                        text = if (isEditing) "Edit Timeline Pin" else "New Timeline Pin",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                AnimatedVisibility(
+                    visible = uiState.isEditing,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                ) {
                     TextButton(
                         onClick = onCancelEdit,
                         enabled = !uiState.isSending,
@@ -573,17 +723,18 @@ private fun PinComposerCard(
                 }
             }
 
-            uiState.editingPin?.let { editing ->
-                val editingLabel = if (editing.isAutoPin) {
-                    "Updating existing Auto-Pin ID: ${editing.id}"
-                } else {
-                    "Updating existing Pin ID: ${editing.id}"
+            AnimatedVisibility(
+                visible = uiState.isEditing,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                lastEditingLabel?.let { editingLabel ->
+                    Text(
+                        text = editingLabel,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
-                Text(
-                    text = editingLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
             }
 
             OutlinedTextField(
@@ -733,50 +884,114 @@ private fun PinComposerCard(
 
             Spacer(Modifier.height(4.dp))
 
+            val submitButtonState = when {
+                uiState.isSending -> SubmitButtonVisualState.Sending
+                activeButtonConfirmation != null -> SubmitButtonVisualState.Confirmed(activeButtonConfirmation)
+                else -> SubmitButtonVisualState.Idle
+            }
+            val buttonContainerColor by animateColorAsState(
+                targetValue = if (submitButtonState is SubmitButtonVisualState.Confirmed) {
+                    MaterialTheme.colorScheme.secondary
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                label = "submitButtonContainerColor",
+            )
+            val buttonContentColor by animateColorAsState(
+                targetValue = if (submitButtonState is SubmitButtonVisualState.Confirmed) {
+                    MaterialTheme.colorScheme.onSecondary
+                } else {
+                    MaterialTheme.colorScheme.onPrimary
+                },
+                label = "submitButtonContentColor",
+            )
+
             Button(
                 onClick = onSendPin,
                 enabled = !isBusy,
-                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = buttonContainerColor,
+                    contentColor = buttonContentColor,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(PinComposerFeedbackTags.SUBMIT_BUTTON),
             ) {
-                if (uiState.isSending) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        when {
-                            uiState.isRunWithoutWatch && uiState.isEditing -> "Updating simulated pin..."
-                            uiState.isRunWithoutWatch -> "Simulating timeline pin..."
-                            uiState.isEditing -> "Updating on Pebble..."
-                            else -> "Sending to Pebble..."
-                        },
-                    )
-                } else {
-                    Icon(
-                        imageVector = if (uiState.isEditing) {
-                            Icons.Default.Edit
-                        } else {
-                            Icons.AutoMirrored.Filled.Send
-                        },
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        when {
-                            uiState.isRunWithoutWatch && uiState.isEditing -> "Update Simulated Pin"
-                            uiState.isRunWithoutWatch -> "Simulate Timeline Pin"
-                            uiState.isEditing -> "Update Timeline Pin"
-                            else -> "Send to Pebble Timeline"
-                        },
-                    )
+                AnimatedContent(
+                    targetState = submitButtonState,
+                    transitionSpec = {
+                        (fadeIn() + scaleIn(initialScale = 0.92f)) togetherWith fadeOut()
+                    },
+                    label = "submitButtonContent",
+                ) { state ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        when (state) {
+                            SubmitButtonVisualState.Sending -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = buttonContentColor,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    when {
+                                        uiState.isRunWithoutWatch && uiState.isEditing -> "Updating simulated pin..."
+                                        uiState.isRunWithoutWatch -> "Simulating timeline pin..."
+                                        uiState.isEditing -> "Updating on Pebble..."
+                                        else -> "Sending to Pebble..."
+                                    },
+                                )
+                            }
+
+                            is SubmitButtonVisualState.Confirmed -> {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(state.confirmation.buttonLabel)
+                            }
+
+                            SubmitButtonVisualState.Idle -> {
+                                Icon(
+                                    imageVector = if (uiState.isEditing) {
+                                        Icons.Default.Edit
+                                    } else {
+                                        Icons.AutoMirrored.Filled.Send
+                                    },
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    when {
+                                        uiState.isRunWithoutWatch && uiState.isEditing -> "Update Simulated Pin"
+                                        uiState.isRunWithoutWatch -> "Simulate Timeline Pin"
+                                        uiState.isEditing -> "Update Timeline Pin"
+                                        else -> "Send to Pebble Timeline"
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
-            uiState.feedback?.let { feedback ->
-                FeedbackBanner(feedback = feedback)
+            AnimatedVisibility(
+                visible = uiState.feedback != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                lastNonNullFeedback?.let { feedback ->
+                    FeedbackBanner(
+                        feedback = feedback,
+                        modifier = Modifier.testTag(PinComposerFeedbackTags.INLINE_FEEDBACK_BANNER),
+                    )
+                }
             }
         }
     }
@@ -1361,7 +1576,10 @@ private fun WatchHandoffDialog(
 }
 
 @Composable
-internal fun FeedbackBanner(feedback: SendFeedback) {
+internal fun FeedbackBanner(
+    feedback: SendFeedback,
+    modifier: Modifier = Modifier,
+) {
     val isSuccess = feedback is SendFeedback.Success
     val containerColor = if (isSuccess) {
         MaterialTheme.colorScheme.secondaryContainer
@@ -1375,7 +1593,7 @@ internal fun FeedbackBanner(feedback: SendFeedback) {
     }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = containerColor,
             contentColor = contentColor,
