@@ -1,0 +1,37 @@
+services:
+  pebble-pin-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pebble-pin-server:local
+    container_name: pebble-pin-server
+    restart: unless-stopped
+    ports:
+      # Bind to localhost and terminate HTTPS in a reverse proxy (Caddy, Nginx, SWAG, Traefik).
+      - "127.0.0.1:${PIN_SERVER_PORT:-8080}:8080"
+    environment:
+      PIN_SERVER_ADDR: ":8080"
+      PIN_SERVER_DATA_FILE: "/data/pins.json"
+      PIN_SERVER_RETENTION: "${PIN_SERVER_RETENTION:-48h}"
+      PIN_SERVER_TRUST_PROXY: "${PIN_SERVER_TRUST_PROXY:-true}"
+      PIN_SERVER_LOG_LEVEL: "${PIN_SERVER_LOG_LEVEL:-info}"
+      # Full read-write token for scripts, webhooks, and cron jobs publishing pins.
+      PIN_SERVER_WRITE_TOKEN: "${PIN_SERVER_WRITE_TOKEN:?Set PIN_SERVER_WRITE_TOKEN in .env}"
+      # Optional read-only token for Pin Manager for Pebble on Android.
+      PIN_SERVER_READ_TOKEN: "${PIN_SERVER_READ_TOKEN:-}"
+    volumes:
+      - pin-server-data:/data
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/pin-server", "-healthcheck"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+volumes:
+  pin-server-data:

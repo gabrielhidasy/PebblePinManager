@@ -30,6 +30,7 @@ Pin Manager for Pebble consists of two cooperating components built for the mode
 │   │   └── ui/            # Material 3 Compose PinComposerScreen & PinComposerViewModel
 │   └── emulator-bridge/   # PebbleKit Android 2 server APK bridging Android emulator -> Pebble QEMU
 ├── watchapp/              # Companion Pebble watchapp (basalt & emery) authorizing PebbleKit 2 pins
+├── server/                # Optional self-hosted Go companion server serving an authenticated JSON pin feed
 ├── docker/                # Reproducible Dockerfiles for Android APK & Pebble PBW builds
 └── scripts/               # Docker build & dual-emulator E2E/video helper scripts
 ```

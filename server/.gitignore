@@ -1,0 +1,4 @@
+/.env
+/data/
+/pin-server
+/coverage.out

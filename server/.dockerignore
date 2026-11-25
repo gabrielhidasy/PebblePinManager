@@ -1,0 +1,6 @@
+/.env
+/*.local
+/data/
+/dist/
+/coverage.out
+/pin-server
