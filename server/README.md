@@ -101,7 +101,8 @@ openssl rand -hex 32
 | `GET` / `HEAD` `/healthz` | None | Liveness probe returning `{"status":"ok"}`. |
 | `GET` / `HEAD` `/` | Web UI (`PIN_SERVER_WEB_UI=true`) | Self-contained Web UI dashboard for adding/editing/deleting pins, scanning your pairing QR code, and retrieving/rotating API tokens. Signs in automatically via `PIN_SERVER_AUTH_PROXY_HEADER` (e.g. Authelia `Remote-User`) or via standalone write-token login. |
 | `POST /ui/api/login`, `POST /ui/api/logout` | Web UI + CSRF | Standalone browser sign-in (accepts per-user write token or global admin write token) and sign-out (`HttpOnly; SameSite=Strict` session cookie). |
-| `GET /ui/api/session`, `PUT /ui/api/profile` | Web UI Session or Auth Proxy | Fetch current Web UI session metadata & pairing QR code; update friendly feed display name. |
+| `GET /ui/api/session`, `PUT /ui/api/profile` | Web UI Session or Auth Proxy | Fetch current Web UI session metadata (without exposing raw tokens); update friendly feed display name. |
+| `POST /ui/api/pairing` | Web UI Session or Auth Proxy + CSRF | Generate the authenticated user's pairing URI & QR SVG on demand (auto-hidden in the Web UI after 30s). |
 | `POST /ui/api/tokens/reveal`, `POST /ui/api/tokens/rotate` | Web UI Session or Auth Proxy + CSRF | Retrieve the authenticated user's read/write API tokens or rotate read and/or write tokens on demand. |
 | `GET` / `POST` / `PUT` / `DELETE` `/ui/api/pins[/{id}]` | Web UI Session or Auth Proxy (+ CSRF on writes) | Browser CRUD endpoints scoped strictly to the signed-in user's pin store. |
 | `GET` / `HEAD` `/register` | Registration Mode only | Renders the self-contained multi-user registration form (`404` when `PIN_SERVER_REGISTRATION_MODE=false`; redirects to `/#pair` when authenticated via `PIN_SERVER_AUTH_PROXY_HEADER`). |

@@ -66,6 +66,7 @@ func (s *Server) registerWebUIRoutes() {
 	s.mux.HandleFunc("POST /ui/api/logout", s.requireCSRF(s.handleUILogout))
 
 	s.mux.HandleFunc("PUT /ui/api/profile", s.requireCSRF(s.requireUIAuth(s.handleUIUpdateProfile)))
+	s.mux.HandleFunc("POST /ui/api/pairing", s.requireCSRF(s.requireUIAuth(s.handleUIPairing)))
 	s.mux.HandleFunc("POST /ui/api/tokens/reveal", s.requireCSRF(s.requireUIAuth(s.handleUIRevealTokens)))
 	s.mux.HandleFunc("POST /ui/api/tokens/rotate", s.requireCSRF(s.requireUIAuth(s.handleUIRotateTokens)))
 
@@ -446,8 +447,6 @@ type uiSessionResponse struct {
 	FeedURL             string                `json:"feedUrl,omitempty"`
 	PinsAPIURL          string                `json:"pinsApiUrl,omitempty"`
 	TokensAvailable     bool                  `json:"tokensAvailable,omitempty"`
-	PairingURI          string                `json:"pairingUri,omitempty"`
-	QRDataURI           string                `json:"qrDataUri,omitempty"`
 	IsHTTP              bool                  `json:"isHttp,omitempty"`
 	IsLocalhost         bool                  `json:"isLocalhost,omitempty"`
 }
@@ -482,24 +481,11 @@ func (s *Server) buildSessionResponse(r *http.Request, id *uiIdentity) (uiSessio
 	resp.PinsAPIURL = meta.PinsAPIURL
 
 	if s.users != nil {
-		readTok, _, avail, err := s.users.RevealTokens(id.User.ID)
+		_, _, avail, err := s.users.RevealTokens(id.User.ID)
 		if err != nil {
 			return uiSessionResponse{}, err
 		}
 		resp.TokensAvailable = avail
-		if avail {
-			displayName := id.User.Name
-			if displayName == "" {
-				displayName = s.effectiveServerName()
-			}
-			pairingURI := BuildPairingURI(meta.FeedURL, readTok, displayName)
-			qrURI, err := qrDataURI(pairingURI)
-			if err != nil {
-				return uiSessionResponse{}, err
-			}
-			resp.PairingURI = pairingURI
-			resp.QRDataURI = qrURI
-		}
 	}
 
 	return resp, nil
@@ -660,6 +646,54 @@ func (s *Server) handleUIUpdateProfile(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 	writeJSON(w, r, http.StatusOK, payload)
+}
+
+type uiPairingResponse struct {
+	Available  bool   `json:"available"`
+	PairingURI string `json:"pairingUri,omitempty"`
+	QRDataURI  string `json:"qrDataUri,omitempty"`
+}
+
+func (s *Server) handleUIPairing(w http.ResponseWriter, r *http.Request, id *uiIdentity) {
+	s.setUINoStoreHeaders(w)
+	if id.IsLegacy || s.users == nil {
+		writeError(w, r, http.StatusBadRequest, "unsupported_in_legacy_mode", "Pairing QR retrieval is only available for multi-user accounts.")
+		return
+	}
+
+	readTok, _, avail, err := s.users.RevealTokens(id.User.ID)
+	if err != nil {
+		if errors.Is(err, store.ErrUserNotFound) {
+			writeError(w, r, http.StatusNotFound, "user_not_found", "User not found.")
+			return
+		}
+		s.logger.Error("ui_pairing_reveal_failed", "userId", id.User.ID, "err", err)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "Failed to retrieve pairing QR code.")
+		return
+	}
+
+	resp := uiPairingResponse{
+		Available: avail,
+	}
+	if avail {
+		baseURL, _ := s.resolveBaseURL(r)
+		meta := s.userMetadata(baseURL, id.User)
+		displayName := id.User.Name
+		if displayName == "" {
+			displayName = s.effectiveServerName()
+		}
+		pairingURI := BuildPairingURI(meta.FeedURL, readTok, displayName)
+		qrURI, err := qrDataURI(pairingURI)
+		if err != nil {
+			s.logger.Error("ui_pairing_qr_failed", "err", err)
+			writeError(w, r, http.StatusInternalServerError, "qr_encode_failed", "Failed to generate QR code.")
+			return
+		}
+		resp.PairingURI = pairingURI
+		resp.QRDataURI = qrURI
+	}
+
+	writeJSON(w, r, http.StatusOK, resp)
 }
 
 type uiTokensResponse struct {

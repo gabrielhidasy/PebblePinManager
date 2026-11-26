@@ -149,6 +149,16 @@ func TestWebUI_AssetsSecurityHeadersAndExactRootMatch(t *testing.T) {
 	if strings.Contains(jsRec.Body.String(), "innerHTML") {
 		t.Fatalf("app.js must not use innerHTML")
 	}
+	for _, needle := range []string{`id="icon-picker"`, `id="qr-toggle-btn"`, `Click to view QR code`} {
+		if !strings.Contains(rec.Body.String(), needle) {
+			t.Errorf("GET / missing expected UI element %q", needle)
+		}
+	}
+	for _, needle := range []string{`QR_VISIBLE_SECONDS = 30`, `/ui/api/pairing`, `PIN_ICONS`, `createIconSvg`} {
+		if !strings.Contains(jsRec.Body.String(), needle) {
+			t.Errorf("GET /ui/app.js missing expected feature %q", needle)
+		}
+	}
 
 	// Exact root match /{$}: unknown paths still return 404.
 	notFoundRec := httptest.NewRecorder()
@@ -192,11 +202,47 @@ func TestWebUI_AutheliaProxyMultiUserProvisioningPinsAndTokenRetrieval(t *testin
 	if aliceSess.User == nil || len(aliceSess.User.ID) != 32 || aliceSess.User.Name != "Alice Pebble" {
 		t.Fatalf("unexpected alice user: %+v", aliceSess.User)
 	}
-	if !aliceSess.TokensAvailable || !strings.HasPrefix(aliceSess.QRDataURI, "data:image/svg+xml;base64,") {
-		t.Fatalf("expected QR data URI for newly provisioned proxy user")
+	if !aliceSess.TokensAvailable {
+		t.Fatalf("expected tokensAvailable=true for newly provisioned proxy user")
 	}
-	if !strings.Contains(aliceSess.PairingURI, "https%3A%2F%2Fpins.example.com%2F"+aliceSess.User.ID+"%2Fpins.json") {
-		t.Fatalf("unexpected pairingUri: %q", aliceSess.PairingURI)
+	// Session payload must NOT expose pairingUri, qrDataUri, or raw tokens on initial load.
+	sessRaw := sessRec.Body.String()
+	for _, forbidden := range []string{"pairingUri", "qrDataUri", "pebblepin://", "data:image/svg+xml"} {
+		if strings.Contains(sessRaw, forbidden) {
+			t.Fatalf("GET /ui/api/session leaked %q: %s", forbidden, sessRaw)
+		}
+	}
+
+	// 1b. Pairing endpoint enforces CSRF and returns QR + pairing URI on demand without writeToken.
+	noCSRFPairingReq := httptest.NewRequest(http.MethodPost, "/ui/api/pairing", nil)
+	noCSRFPairingReq.Header.Set("Remote-User", "alice")
+	noCSRFPairingRec := httptest.NewRecorder()
+	env.server.ServeHTTP(noCSRFPairingRec, noCSRFPairingReq)
+	if noCSRFPairingRec.Code != http.StatusForbidden {
+		t.Fatalf("POST /ui/api/pairing without CSRF = %d, want 403", noCSRFPairingRec.Code)
+	}
+
+	pairingReq := httptest.NewRequest(http.MethodPost, "/ui/api/pairing", nil)
+	pairingReq.Header.Set("Remote-User", "alice")
+	pairingReq.Header.Set(uiCSRFHeaderName, csrfTok)
+	pairingReq.AddCookie(csrfCookie)
+	pairingRec := httptest.NewRecorder()
+	env.server.ServeHTTP(pairingRec, pairingReq)
+	if pairingRec.Code != http.StatusOK {
+		t.Fatalf("POST /ui/api/pairing = %d (%s)", pairingRec.Code, pairingRec.Body.String())
+	}
+	if strings.Contains(pairingRec.Body.String(), "writeToken") {
+		t.Fatalf("POST /ui/api/pairing must not expose writeToken: %s", pairingRec.Body.String())
+	}
+	var alicePairing uiPairingResponse
+	if err := json.Unmarshal(pairingRec.Body.Bytes(), &alicePairing); err != nil {
+		t.Fatalf("decode alice pairing: %v", err)
+	}
+	if !alicePairing.Available || !strings.HasPrefix(alicePairing.QRDataURI, "data:image/svg+xml;base64,") {
+		t.Fatalf("expected QR data URI from POST /ui/api/pairing, got %+v", alicePairing)
+	}
+	if !strings.Contains(alicePairing.PairingURI, "https%3A%2F%2Fpins.example.com%2F"+aliceSess.User.ID+"%2Fpins.json") {
+		t.Fatalf("unexpected pairingUri: %q", alicePairing.PairingURI)
 	}
 
 	// 2. Alice visits /register behind Authelia -> redirects to /#pair without creating a second user.
@@ -445,7 +491,7 @@ func TestWebUI_StandaloneTokenLoginCSRFTokenRotationAndAdminLegacy(t *testing.T)
 	sess1 := loginUser()
 	sess2 := loginUser()
 
-	// Update profile name via session 1 -> updates QR pairing URI.
+	// Update profile name via session 1 -> updates QR pairing URI returned on demand.
 	profReq := httptest.NewRequest(http.MethodPut, "/ui/api/profile", strings.NewReader(`{"name":"Renamed Watch"}`))
 	profReq.Header.Set("Content-Type", "application/json")
 	profReq.Header.Set(uiCSRFHeaderName, csrfTok)
@@ -460,8 +506,25 @@ func TestWebUI_StandaloneTokenLoginCSRFTokenRotationAndAdminLegacy(t *testing.T)
 	if err := json.Unmarshal(profRec.Body.Bytes(), &profResp); err != nil {
 		t.Fatal(err)
 	}
-	if profResp.User == nil || profResp.User.Name != "Renamed Watch" || !strings.Contains(profResp.PairingURI, "name=Renamed%20Watch") {
+	if profResp.User == nil || profResp.User.Name != "Renamed Watch" || !profResp.TokensAvailable {
 		t.Fatalf("unexpected profile response: %+v", profResp)
+	}
+
+	renamedPairingReq := httptest.NewRequest(http.MethodPost, "/ui/api/pairing", nil)
+	renamedPairingReq.Header.Set(uiCSRFHeaderName, csrfTok)
+	renamedPairingReq.AddCookie(csrfCookie)
+	renamedPairingReq.AddCookie(sess1)
+	renamedPairingRec := httptest.NewRecorder()
+	env.server.ServeHTTP(renamedPairingRec, renamedPairingReq)
+	if renamedPairingRec.Code != http.StatusOK {
+		t.Fatalf("pairing after rename = %d (%s)", renamedPairingRec.Code, renamedPairingRec.Body.String())
+	}
+	var renamedPairing uiPairingResponse
+	if err := json.Unmarshal(renamedPairingRec.Body.Bytes(), &renamedPairing); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(renamedPairing.PairingURI, "name=Renamed%20Watch") {
+		t.Fatalf("expected renamed pairingUri, got %+v", renamedPairing)
 	}
 
 	// Rotate write token in session 1 -> session 1 remains valid, session 2 is invalidated!
@@ -534,6 +597,17 @@ func TestWebUI_StandaloneTokenLoginCSRFTokenRotationAndAdminLegacy(t *testing.T)
 	}
 	if adminSessCookie == nil {
 		t.Fatalf("missing admin session cookie")
+	}
+
+	// Legacy admin session rejects /ui/api/pairing.
+	legacyPairReq := httptest.NewRequest(http.MethodPost, "/ui/api/pairing", nil)
+	legacyPairReq.Header.Set(uiCSRFHeaderName, csrfTok)
+	legacyPairReq.AddCookie(csrfCookie)
+	legacyPairReq.AddCookie(adminSessCookie)
+	legacyPairRec := httptest.NewRecorder()
+	env.server.ServeHTTP(legacyPairRec, legacyPairReq)
+	if legacyPairRec.Code != http.StatusBadRequest {
+		t.Fatalf("legacy /ui/api/pairing = %d, want 400", legacyPairRec.Code)
 	}
 
 	legacyPinReq := httptest.NewRequest(http.MethodPost, "/ui/api/pins", strings.NewReader(`{
