@@ -4,13 +4,14 @@ A lightweight, zero-dependency Go HTTP server that stores Pebble Timeline pins d
 
 ## Features
 
-- **Authenticated JSON Feed**: Serves `GET /pins.json` and `GET /api/v1/pins.json` using the shared v1 JSON pin schema.
-- **Cheap Polling**: Strong `ETag` / `If-None-Match` (`304 Not Modified`), `Last-Modified` / `If-Modified-Since`, and `HEAD` support.
-- **Scoped Token Authentication**: Constant-time SHA-256 token verification via `Authorization: Bearer <token>` or `X-API-Key: <token>`, supporting optional separate **read-only** (phone) and **read-write** (automation/scripts) tokens. Raw tokens are never logged.
+- **Multi-User Isolation (`/{userId}/pins.json`)**: Each registered user receives a cryptographically random 32-char hex `userId`, an isolated pin feed (`GET /{userId}/pins.json`), isolated per-user CRUD endpoints (`/api/v1/users/{userId}/pins`), and dedicated per-user **read-only** and **read-write** tokens (stored on disk only as SHA-256 hashes).
+- **Backward-Compatible Single-User Feed**: Legacy `GET /pins.json`, `GET /api/v1/pins.json`, and `/api/v1/pins` continue working seamlessly with global tokens.
+- **Cheap Polling**: Strong `ETag` / `If-None-Match` (`304 Not Modified`), `Last-Modified` / `If-Modified-Since`, and `HEAD` support on both per-user and legacy feeds.
+- **Scoped Token Authentication**: Constant-time SHA-256 token verification via `Authorization: Bearer <token>` or `X-API-Key: <token>`. Per-user tokens are strictly scoped to their own user ID (cross-user access returns `401` without leaking user existence); `PIN_SERVER_WRITE_TOKEN` also acts as an admin token for managing users. Raw tokens are never logged or stored in plaintext.
 - **CRUD Management API**: Create (`POST`), upsert by stable ID (`PUT`), list (`GET`), inspect (`GET /{id}`), and delete (`DELETE`) pins with full `TimelineEvent` validation.
 - **Automatic Retention**: Optionally expires pins whose end time (`startTime + durationMinutes`) is older than `PIN_SERVER_RETENTION` (default `48h`, matching Pebble Timeline's 2-day past window).
-- **QR Code Registration Mode**: Opt-in `PIN_SERVER_REGISTRATION_MODE=true` enables a self-contained `/register` HTML page with an inline SVG QR code for instant pairing with the Android app (disabled by default — returns `404` when off).
-- **Durable Atomic Storage**: Persists pins to a single JSON file via temp-file + `fsync` + atomic rename.
+- **QR Code Registration Mode**: Opt-in `PIN_SERVER_REGISTRATION_MODE=true` enables `/register` (HTML form + `POST /register` HTML/JSON) that creates a new user with a random `userId`, renders an inline SVG QR code pointing to `/{userId}/pins.json` with the user's read-only token, and displays their one-time write token (disabled by default — returns `404` when off).
+- **Durable Atomic Storage**: Persists user metadata (`users.json`) and per-user pin stores (`users/<userId>/pins.json`) via temp-file + `fsync` + atomic rename.
 - **Containerized**: Static scratch Docker image running as non-root (`65532:65532`) with a built-in `-healthcheck` probe and hardened `docker-compose.yml`.
 
 ---
@@ -68,13 +69,15 @@ Unknown JSON fields are rejected with `400 Bad Request`.
 | `PIN_SERVER_WRITE_TOKEN_FILE` | — | Path to file containing the write token (for Docker secrets). Alias: `PIN_SERVER_TOKEN_FILE`. |
 | `PIN_SERVER_READ_TOKEN` | — | Optional read-only token (`GET`/`HEAD` only; returns `403` on writes). Ideal for configuring on your phone. |
 | `PIN_SERVER_READ_TOKEN_FILE` | — | Path to file containing the read-only token. |
-| `PIN_SERVER_DATA_FILE` | `/data/pins.json` | Path to the persistent JSON storage file. |
+| `PIN_SERVER_DATA_FILE` | `/data/pins.json` | Path to the legacy single-user persistent JSON storage file. |
+| `PIN_SERVER_DATA_DIR` | *(dir of `PIN_SERVER_DATA_FILE`)* | Directory storing multi-user registry (`users.json`) and per-user pin files (`users/<userId>/pins.json`). |
+| `PIN_SERVER_MAX_USERS` | `1000` | Maximum number of registered multi-user accounts (`0` disables limit). |
 | `PIN_SERVER_RETENTION` | `48h` | Go duration after a pin's end time before it expires from the feed. Set `0` to disable automatic expiration. |
-| `PIN_SERVER_TRUST_PROXY` | `false` | If `true`, record client IP from `X-Forwarded-For` / `X-Real-IP` in access logs and respect `X-Forwarded-Proto` / `X-Forwarded-Host` on `/register`. |
+| `PIN_SERVER_TRUST_PROXY` | `false` | If `true`, record client IP from `X-Forwarded-For` / `X-Real-IP` in access logs and respect `X-Forwarded-Proto` / `X-Forwarded-Host` on `/register` and user API responses. |
 | `PIN_SERVER_LOG_LEVEL` | `info` | Structured JSON log level: `debug`, `info`, `warn`, or `error`. |
-| `PIN_SERVER_REGISTRATION_MODE` | `false` | When `true`, enables `GET /register` showing a pairing QR code for the Android app. **Disable and restart after pairing.** |
-| `PIN_SERVER_PUBLIC_URL` | — | Optional public base URL (e.g. `https://pins.example.com`) encoded in `/register` QR codes. Auto-detected from the incoming request when unset. |
-| `PIN_SERVER_NAME` | — | Optional friendly feed name (max 80 chars) embedded in `/register` QR codes. |
+| `PIN_SERVER_REGISTRATION_MODE` | `false` | When `true`, enables `GET`/`POST /register` to create new users with random IDs and pairing QR codes for `/{userId}/pins.json`. **Disable and restart after pairing.** |
+| `PIN_SERVER_PUBLIC_URL` | — | Optional public base URL (e.g. `https://pins.example.com`) encoded in `/register` QR codes and user API URLs. Auto-detected from the incoming request when unset. |
+| `PIN_SERVER_NAME` | — | Optional default friendly feed name (max 80 chars) pre-filled in `/register` and embedded in QR codes when no per-user name is supplied. |
 
 \* At least one of `PIN_SERVER_WRITE_TOKEN` (or `PIN_SERVER_TOKEN`) or `PIN_SERVER_READ_TOKEN` must be configured; the server refuses to start unauthenticated.
 
@@ -91,14 +94,26 @@ openssl rand -hex 32
 | Method & Path | Auth Role | Description |
 |---|---|---|
 | `GET` / `HEAD` `/healthz` | None | Liveness probe returning `{"status":"ok"}`. |
-| `GET` / `HEAD` `/register` | Registration Mode only | Self-contained HTML page with QR code (`pebblepin://pair?...`) for instant Android pairing. Only registered when `PIN_SERVER_REGISTRATION_MODE=true` (returns `404` otherwise). Embeds `PIN_SERVER_READ_TOKEN` when configured (falling back to write token with a warning). |
-| `GET` / `HEAD` `/pins.json` | Read or Write | Authenticated JSON pin feed with `ETag`, `Last-Modified`, `If-None-Match` (`304`), and `If-Modified-Since` (`304`). |
-| `GET` / `HEAD` `/api/v1/pins.json` | Read or Write | Alias for `/pins.json`. |
-| `GET` / `HEAD` `/api/v1/pins` | Read or Write | List active pins (`?includeExpired=true` includes expired pins not yet pruned). |
-| `GET` / `HEAD` `/api/v1/pins/{id}` | Read or Write | Fetch a single active pin by ID (`404` if missing/expired). |
-| `POST /api/v1/pins` | Write | Create a pin (auto-generates `id` if omitted; returns `409` if `id` already exists). |
-| `PUT /api/v1/pins/{id}` | Write | Create (`201`) or replace (`200`) a pin by stable ID (upsert). |
-| `DELETE /api/v1/pins/{id}` | Write | Delete a pin by ID (`204 No Content` or `404 Not Found`). |
+| `GET` / `HEAD` `/register` | Registration Mode only | Renders the self-contained multi-user registration form (`404` when `PIN_SERVER_REGISTRATION_MODE=false`). |
+| `POST /register` | Registration Mode only | Creates a new user with a random `userId` and scoped read/write tokens. Returns HTML with an inline SVG QR code (`pebblepin://pair?...` pointing to `/{userId}/pins.json`) for browser forms, or `201 Created` JSON when `Content-Type`/`Accept` is `application/json`. |
+| `GET` / `HEAD` `/{userId}/pins.json` | User Read/Write or Admin | Authenticated per-user JSON pin feed with `ETag`, `Last-Modified`, `If-None-Match` (`304`), and `If-Modified-Since` (`304`). |
+| `GET` / `HEAD` `/api/v1/users/{userId}/pins.json` | User Read/Write or Admin | Alias for `/{userId}/pins.json`. |
+| `GET` / `HEAD` `/api/v1/users/{userId}/pins` | User Read/Write or Admin | List active pins for `{userId}` (`?includeExpired=true` includes expired pins not yet pruned). |
+| `GET` / `HEAD` `/api/v1/users/{userId}/pins/{id}` | User Read/Write or Admin | Fetch a single active pin for `{userId}` (`404` if missing/expired). |
+| `POST /api/v1/users/{userId}/pins` | User Write or Admin | Create a pin for `{userId}` (auto-generates `id` if omitted; returns `409` if `id` already exists). |
+| `PUT /api/v1/users/{userId}/pins/{id}` | User Write or Admin | Create (`201`) or replace (`200`) a pin for `{userId}` by stable ID (upsert). |
+| `DELETE /api/v1/users/{userId}/pins/{id}` | User Write or Admin | Delete a pin for `{userId}` (`204 No Content` or `404 Not Found`). |
+| `GET` / `HEAD` `/api/v1/users` | Admin (`PIN_SERVER_WRITE_TOKEN`) | List all registered users (metadata & URLs only; never exposes token hashes). |
+| `POST /api/v1/users` | Admin (`PIN_SERVER_WRITE_TOKEN`) | Programmatically register a new user (works even when `PIN_SERVER_REGISTRATION_MODE=false`) and return one-time `readToken`, `writeToken`, and `pairingUri`. |
+| `GET` / `HEAD` `/api/v1/users/{userId}` | Admin (`PIN_SERVER_WRITE_TOKEN`) | Get metadata for a single registered user. |
+| `DELETE /api/v1/users/{userId}` | Admin (`PIN_SERVER_WRITE_TOKEN`) | Delete a user and remove their isolated pin store (`204 No Content`). |
+| `GET` / `HEAD` `/pins.json` | Global Read or Admin | Legacy single-user authenticated JSON pin feed. |
+| `GET` / `HEAD` `/api/v1/pins.json` | Global Read or Admin | Alias for legacy `/pins.json`. |
+| `GET` / `HEAD` `/api/v1/pins` | Global Read or Admin | List active legacy pins (`?includeExpired=true` supported). |
+| `GET` / `HEAD` `/api/v1/pins/{id}` | Global Read or Admin | Fetch a single active legacy pin by ID. |
+| `POST /api/v1/pins` | Admin (`PIN_SERVER_WRITE_TOKEN`) | Create a legacy pin. |
+| `PUT /api/v1/pins/{id}` | Admin (`PIN_SERVER_WRITE_TOKEN`) | Upsert a legacy pin by stable ID. |
+| `DELETE /api/v1/pins/{id}` | Admin (`PIN_SERVER_WRITE_TOKEN`) | Delete a legacy pin by ID. |
 
 Authentication headers accepted on all protected routes:
 - `Authorization: Bearer <token>`
@@ -158,9 +173,27 @@ curl -i "$BASE_URL/pins.json" \
   -H "Authorization: Bearer $READ_TOKEN" \
   -H 'If-None-Match: "<etag-from-step-4>"'
 
-# 6. Delete a pin
+# 6. Delete a pin (legacy single-user)
 curl -i -X DELETE "$BASE_URL/api/v1/pins/daily-standup" \
   -H "Authorization: Bearer $WRITE_TOKEN"
+
+# 7. Multi-user: register a user (admin API, works even with registration mode off)
+USER_JSON=$(curl -sf -X POST "$BASE_URL/api/v1/users" \
+  -H "Authorization: Bearer $WRITE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice'\''s Pebble"}')
+USER_ID=$(echo "$USER_JSON" | jq -r .id)
+USER_WRITE_TOKEN=$(echo "$USER_JSON" | jq -r .writeToken)
+USER_READ_TOKEN=$(echo "$USER_JSON" | jq -r .readToken)
+
+# 8. Multi-user: push a pin to that user and fetch their isolated feed
+curl -sf -X POST "$BASE_URL/api/v1/users/$USER_ID/pins" \
+  -H "Authorization: Bearer $USER_WRITE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Alice Standup","startTime":"2026-11-26T14:00:00Z"}'
+
+curl -i "$BASE_URL/$USER_ID/pins.json" \
+  -H "Authorization: Bearer $USER_READ_TOKEN"
 ```
 
 ---

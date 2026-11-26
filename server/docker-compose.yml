@@ -12,6 +12,8 @@ services:
     environment:
       PIN_SERVER_ADDR: ":8080"
       PIN_SERVER_DATA_FILE: "/data/pins.json"
+      PIN_SERVER_DATA_DIR: "/data"
+      PIN_SERVER_MAX_USERS: "${PIN_SERVER_MAX_USERS:-1000}"
       PIN_SERVER_RETENTION: "${PIN_SERVER_RETENTION:-48h}"
       PIN_SERVER_TRUST_PROXY: "${PIN_SERVER_TRUST_PROXY:-true}"
       PIN_SERVER_LOG_LEVEL: "${PIN_SERVER_LOG_LEVEL:-info}"

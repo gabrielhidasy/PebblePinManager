@@ -54,21 +54,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	userMgr, err := store.NewUserManager(cfg.DataDir, cfg.Retention, store.WithMaxUsers(cfg.MaxUsers))
+	if err != nil {
+		logger.Error("failed to initialize user manager", "err", err)
+		os.Exit(1)
+	}
+
 	auth := api.NewAuthenticator(cfg.WriteToken, cfg.ReadToken)
 	opts := []api.ServerOption{
 		api.WithLogger(logger),
 		api.WithTrustProxy(cfg.TrustProxy),
+		api.WithUserManager(userMgr),
+		api.WithPublicURL(cfg.PublicURL),
+		api.WithServerName(cfg.ServerName),
 	}
 	if cfg.RegistrationMode {
-		pairingToken, scope := cfg.PairingToken()
 		logger.Warn(
-			"registration mode is enabled; /register exposes the client pairing QR code — disable PIN_SERVER_REGISTRATION_MODE and restart after pairing",
-			"tokenScope", scope,
+			"registration mode is enabled; /register allows creating new multi-user feeds and pairing QR codes — disable PIN_SERVER_REGISTRATION_MODE and restart after pairing",
 		)
 		opts = append(opts, api.WithRegistration(api.RegistrationConfig{
 			Enabled:    true,
-			Token:      pairingToken,
-			TokenScope: scope,
 			PublicURL:  cfg.PublicURL,
 			ServerName: cfg.ServerName,
 		}))

@@ -85,18 +85,18 @@ For a given configured feed (`source = REMOTE_URL`, `sourceKey = "remote:<feedId
 
 ## QR Code Pairing Contract (`pebblepin://pair`, v1)
 
-When the companion server is started in temporary registration mode (`PIN_SERVER_REGISTRATION_MODE=true`), `GET /register` renders a QR code encoding a `pebblepin://pair` URI for instant pairing with the Android app:
+When the companion server is started in temporary registration mode (`PIN_SERVER_REGISTRATION_MODE=true`), submitting the registration form at `/register` (`POST /register`) creates a new isolated user with a random `userId` and scoped read/write tokens, and renders a QR code encoding a `pebblepin://pair` URI pointing to `/{userId}/pins.json` for instant pairing with the Android app:
 
 ```text
-pebblepin://pair?v=1&url=https%3A%2F%2Fpins.example.com%2Fpins.json&auth=bearer&token=<READ_TOKEN>&name=Home%20Pin%20Server
+pebblepin://pair?v=1&url=https%3A%2F%2Fpins.example.com%2Fa1b2c3d4e5f60718293a4b5c6d7e8f90%2Fpins.json&auth=bearer&token=<USER_READ_TOKEN>&name=Home%20Pin%20Server
 ```
 
 | Query Parameter | Required | Description |
 | :--- | :--- | :--- |
 | `v` | **Yes** | Pairing payload schema version (`1`). |
-| `url` | **Yes** | Full JSON feed URL (`https://.../pins.json`, or `http://...` for local LAN testing). |
+| `url` | **Yes** | Full JSON feed URL (`https://.../<userId>/pins.json`, `https://.../pins.json`, or `http://...` for local LAN testing). |
 | `auth` | No | Authentication scheme: `bearer` (default when `token` is present), `apikey`, `basic`, or `none`. |
-| `token` | When `auth` is `bearer` or `apikey` | Authentication token (companion server prefers `PIN_SERVER_READ_TOKEN`). |
+| `token` | When `auth` is `bearer` or `apikey` | Authentication token (companion server mints a per-user read-only token during registration). |
 | `header` | No | Custom header name when `auth=apikey` (defaults to `X-API-Key`). |
 | `user` / `pass` | When `auth=basic` | HTTP Basic credentials. |
 | `name` | No | Optional friendly feed display name (up to 80 chars). |

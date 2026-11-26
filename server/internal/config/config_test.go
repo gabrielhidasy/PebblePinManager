@@ -29,6 +29,12 @@ func TestLoadFromEnv_DefaultsAndSingleToken(t *testing.T) {
 	if cfg.DataFile != DefaultDataFile {
 		t.Errorf("DataFile = %q, want %q", cfg.DataFile, DefaultDataFile)
 	}
+	if cfg.DataDir != "/data" {
+		t.Errorf("DataDir = %q, want %q", cfg.DataDir, "/data")
+	}
+	if cfg.MaxUsers != DefaultMaxUsers {
+		t.Errorf("MaxUsers = %d, want %d", cfg.MaxUsers, DefaultMaxUsers)
+	}
 	if cfg.Retention != DefaultRetention {
 		t.Errorf("Retention = %v, want %v", cfg.Retention, DefaultRetention)
 	}
@@ -65,6 +71,8 @@ func TestLoadFromEnv_SeparateTokensFromFilesAndRegistrationMode(t *testing.T) {
 	cfg, err := LoadFromEnv(mapEnv(map[string]string{
 		"PIN_SERVER_ADDR":              "127.0.0.1:9090",
 		"PIN_SERVER_DATA_FILE":         "/tmp/pins.json",
+		"PIN_SERVER_DATA_DIR":          "/tmp/pebble-data",
+		"PIN_SERVER_MAX_USERS":         "250",
 		"PIN_SERVER_RETENTION":         "72h",
 		"PIN_SERVER_TRUST_PROXY":       "true",
 		"PIN_SERVER_LOG_LEVEL":         "debug",
@@ -83,6 +91,12 @@ func TestLoadFromEnv_SeparateTokensFromFilesAndRegistrationMode(t *testing.T) {
 	}
 	if cfg.DataFile != "/tmp/pins.json" {
 		t.Errorf("DataFile = %q", cfg.DataFile)
+	}
+	if cfg.DataDir != "/tmp/pebble-data" {
+		t.Errorf("DataDir = %q", cfg.DataDir)
+	}
+	if cfg.MaxUsers != 250 {
+		t.Errorf("MaxUsers = %d", cfg.MaxUsers)
 	}
 	if cfg.Retention != 72*time.Hour {
 		t.Errorf("Retention = %v", cfg.Retention)
@@ -197,6 +211,20 @@ func TestLoadFromEnv_Errors(t *testing.T) {
 			env: map[string]string{
 				"PIN_SERVER_TOKEN": "secret",
 				"PIN_SERVER_NAME":  strings.Repeat("a", 81),
+			},
+		},
+		{
+			name: "invalid max users",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":     "secret",
+				"PIN_SERVER_MAX_USERS": "many",
+			},
+		},
+		{
+			name: "negative max users",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":     "secret",
+				"PIN_SERVER_MAX_USERS": "-1",
 			},
 		},
 	}

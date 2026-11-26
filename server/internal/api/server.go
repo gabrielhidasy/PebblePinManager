@@ -30,7 +30,8 @@ func WithLogger(logger *slog.Logger) ServerOption {
 	}
 }
 
-// WithTrustProxy enables reading client IPs from X-Forwarded-For / X-Real-IP in access logs.
+// WithTrustProxy enables reading client IPs from X-Forwarded-For / X-Real-IP in access logs
+// and respecting X-Forwarded-Proto / X-Forwarded-Host when constructing public URLs.
 func WithTrustProxy(trust bool) ServerOption {
 	return func(s *Server) {
 		s.trustProxy = trust
@@ -46,12 +47,43 @@ func WithServerClock(now func() time.Time) ServerOption {
 	}
 }
 
+// WithUserManager enables multi-user feeds (/{userId}/pins.json), per-user pin CRUD,
+// user management (/api/v1/users), and multi-user QR registration.
+func WithUserManager(users *store.UserManager) ServerOption {
+	return func(s *Server) {
+		if users != nil {
+			s.users = users
+		}
+	}
+}
+
+// WithPublicURL sets the public base URL used when constructing feed and pairing URLs.
+func WithPublicURL(publicURL string) ServerOption {
+	return func(s *Server) {
+		if trimmed := strings.TrimSpace(publicURL); trimmed != "" {
+			s.publicURL = trimmed
+		}
+	}
+}
+
+// WithServerName sets the default friendly feed name embedded in pairing QR codes.
+func WithServerName(serverName string) ServerOption {
+	return func(s *Server) {
+		if trimmed := strings.TrimSpace(serverName); trimmed != "" {
+			s.serverName = trimmed
+		}
+	}
+}
+
 // Server exposes the authenticated Pebble pin feed and CRUD HTTP API.
 type Server struct {
 	store        *store.Store
+	users        *store.UserManager
 	auth         *Authenticator
 	logger       *slog.Logger
 	trustProxy   bool
+	publicURL    string
+	serverName   string
 	registration RegistrationConfig
 	now          func() time.Time
 	mux          *http.ServeMux
@@ -79,10 +111,14 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("HEAD /healthz", s.handleHealthz)
 
 	if s.registration.Enabled {
-		s.mux.HandleFunc("GET /register", s.handleRegister)
-		s.mux.HandleFunc("HEAD /register", s.handleRegister)
+		s.mux.HandleFunc("GET /register", s.handleRegisterGet)
+		s.mux.HandleFunc("HEAD /register", s.handleRegisterGet)
+		if s.users != nil {
+			s.mux.HandleFunc("POST /register", s.handleRegisterPost)
+		}
 	}
 
+	// Legacy single-user feed & CRUD routes.
 	s.mux.HandleFunc("GET /pins.json", s.requireAuth(RoleRead, s.handleFeed))
 	s.mux.HandleFunc("HEAD /pins.json", s.requireAuth(RoleRead, s.handleFeed))
 	s.mux.HandleFunc("GET /api/v1/pins.json", s.requireAuth(RoleRead, s.handleFeed))
@@ -96,6 +132,30 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("HEAD /api/v1/pins/{id}", s.requireAuth(RoleRead, s.handleGetPin))
 	s.mux.HandleFunc("PUT /api/v1/pins/{id}", s.requireAuth(RoleWrite, s.handleUpsertPin))
 	s.mux.HandleFunc("DELETE /api/v1/pins/{id}", s.requireAuth(RoleWrite, s.handleDeletePin))
+
+	// Multi-user feed, per-user CRUD, and admin user management routes.
+	if s.users != nil {
+		s.mux.HandleFunc("GET /api/v1/users", s.requireAuth(RoleWrite, s.handleListUsers))
+		s.mux.HandleFunc("HEAD /api/v1/users", s.requireAuth(RoleWrite, s.handleListUsers))
+		s.mux.HandleFunc("POST /api/v1/users", s.requireAuth(RoleWrite, s.handleCreateUser))
+		s.mux.HandleFunc("GET /api/v1/users/{userId}", s.requireAuth(RoleWrite, s.handleGetUser))
+		s.mux.HandleFunc("HEAD /api/v1/users/{userId}", s.requireAuth(RoleWrite, s.handleGetUser))
+		s.mux.HandleFunc("DELETE /api/v1/users/{userId}", s.requireAuth(RoleWrite, s.handleDeleteUser))
+
+		s.mux.HandleFunc("GET /{userId}/pins.json", s.requireUserAuth(RoleRead, s.handleUserFeed))
+		s.mux.HandleFunc("HEAD /{userId}/pins.json", s.requireUserAuth(RoleRead, s.handleUserFeed))
+		s.mux.HandleFunc("GET /api/v1/users/{userId}/pins.json", s.requireUserAuth(RoleRead, s.handleUserFeed))
+		s.mux.HandleFunc("HEAD /api/v1/users/{userId}/pins.json", s.requireUserAuth(RoleRead, s.handleUserFeed))
+
+		s.mux.HandleFunc("GET /api/v1/users/{userId}/pins", s.requireUserAuth(RoleRead, s.handleUserListPins))
+		s.mux.HandleFunc("HEAD /api/v1/users/{userId}/pins", s.requireUserAuth(RoleRead, s.handleUserListPins))
+		s.mux.HandleFunc("POST /api/v1/users/{userId}/pins", s.requireUserAuth(RoleWrite, s.handleUserCreatePin))
+
+		s.mux.HandleFunc("GET /api/v1/users/{userId}/pins/{id}", s.requireUserAuth(RoleRead, s.handleUserGetPin))
+		s.mux.HandleFunc("HEAD /api/v1/users/{userId}/pins/{id}", s.requireUserAuth(RoleRead, s.handleUserGetPin))
+		s.mux.HandleFunc("PUT /api/v1/users/{userId}/pins/{id}", s.requireUserAuth(RoleWrite, s.handleUserUpsertPin))
+		s.mux.HandleFunc("DELETE /api/v1/users/{userId}/pins/{id}", s.requireUserAuth(RoleWrite, s.handleUserDeletePin))
+	}
 }
 
 // ServeHTTP implements http.Handler with security headers and token-safe access logging.
@@ -146,7 +206,31 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
-	snap, err := s.store.Feed()
+	s.serveFeed(w, r, s.store)
+}
+
+func (s *Server) handleListPins(w http.ResponseWriter, r *http.Request) {
+	s.serveListPins(w, r, s.store)
+}
+
+func (s *Server) handleGetPin(w http.ResponseWriter, r *http.Request) {
+	s.serveGetPin(w, r, s.store)
+}
+
+func (s *Server) handleCreatePin(w http.ResponseWriter, r *http.Request) {
+	s.serveCreatePin(w, r, s.store, "/api/v1/pins/")
+}
+
+func (s *Server) handleUpsertPin(w http.ResponseWriter, r *http.Request) {
+	s.serveUpsertPin(w, r, s.store, "/api/v1/pins/")
+}
+
+func (s *Server) handleDeletePin(w http.ResponseWriter, r *http.Request) {
+	s.serveDeletePin(w, r, s.store)
+}
+
+func (s *Server) serveFeed(w http.ResponseWriter, r *http.Request, st *store.Store) {
+	snap, err := st.Feed()
 	if err != nil {
 		s.logger.Error("feed_snapshot_failed", "err", err)
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "Failed to build pin feed.")
@@ -170,27 +254,27 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleListPins(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveListPins(w http.ResponseWriter, r *http.Request, st *store.Store) {
 	includeExpired := strings.EqualFold(r.URL.Query().Get("includeExpired"), "true")
 	if !includeExpired {
-		s.handleFeed(w, r)
+		s.serveFeed(w, r, st)
 		return
 	}
 
-	feed := s.store.List(true)
+	feed := st.List(true)
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Vary", "Authorization, X-API-Key")
 	writeJSON(w, r, http.StatusOK, feed)
 }
 
-func (s *Server) handleGetPin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveGetPin(w http.ResponseWriter, r *http.Request, st *store.Store) {
 	id := r.PathValue("id")
 	if err := model.ValidateID(id); err != nil {
 		writeValidationErrors(w, r, model.ValidationErrors{*err})
 		return
 	}
 
-	pin, ok := s.store.Get(id)
+	pin, ok := st.Get(id)
 	if !ok {
 		writeError(w, r, http.StatusNotFound, "not_found", "Pin not found.")
 		return
@@ -201,7 +285,7 @@ func (s *Server) handleGetPin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, r, http.StatusOK, pin)
 }
 
-func (s *Server) handleCreatePin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveCreatePin(w http.ResponseWriter, r *http.Request, st *store.Store, locationPrefix string) {
 	pin, ok := s.decodePinPayload(w, r)
 	if !ok {
 		return
@@ -223,10 +307,10 @@ func (s *Server) handleCreatePin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	created, err := s.store.Create(normalized)
+	created, err := st.Create(normalized)
 	if err != nil {
 		if errors.Is(err, store.ErrAlreadyExists) {
-			writeError(w, r, http.StatusConflict, "already_exists", "A pin with this ID already exists; use PUT /api/v1/pins/{id} to update it.")
+			writeError(w, r, http.StatusConflict, "already_exists", "A pin with this ID already exists; use PUT "+locationPrefix+"{id} to update it.")
 			return
 		}
 		s.logger.Error("create_pin_failed", "err", err)
@@ -234,11 +318,11 @@ func (s *Server) handleCreatePin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Location", "/api/v1/pins/"+created.ID)
+	w.Header().Set("Location", locationPrefix+created.ID)
 	writeJSON(w, r, http.StatusCreated, created)
 }
 
-func (s *Server) handleUpsertPin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveUpsertPin(w http.ResponseWriter, r *http.Request, st *store.Store, locationPrefix string) {
 	pathID := r.PathValue("id")
 	if idErr := model.ValidateID(pathID); idErr != nil {
 		writeValidationErrors(w, r, model.ValidationErrors{*idErr})
@@ -266,7 +350,7 @@ func (s *Server) handleUpsertPin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stored, created, err := s.store.Upsert(normalized)
+	stored, created, err := st.Upsert(normalized)
 	if err != nil {
 		s.logger.Error("upsert_pin_failed", "err", err)
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "Failed to persist pin.")
@@ -276,19 +360,19 @@ func (s *Server) handleUpsertPin(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	if created {
 		status = http.StatusCreated
-		w.Header().Set("Location", "/api/v1/pins/"+stored.ID)
+		w.Header().Set("Location", locationPrefix+stored.ID)
 	}
 	writeJSON(w, r, status, stored)
 }
 
-func (s *Server) handleDeletePin(w http.ResponseWriter, r *http.Request) {
+func (s *Server) serveDeletePin(w http.ResponseWriter, r *http.Request, st *store.Store) {
 	id := r.PathValue("id")
 	if idErr := model.ValidateID(id); idErr != nil {
 		writeValidationErrors(w, r, model.ValidationErrors{*idErr})
 		return
 	}
 
-	if err := s.store.Delete(id); err != nil {
+	if err := st.Delete(id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, r, http.StatusNotFound, "not_found", "Pin not found.")
 			return
@@ -410,7 +494,7 @@ func writeError(w http.ResponseWriter, r *http.Request, status int, code, messag
 func writeValidationErrors(w http.ResponseWriter, r *http.Request, details model.ValidationErrors) {
 	writeJSON(w, r, http.StatusBadRequest, apiErrorResponse{
 		Error:   "validation_failed",
-		Message: "One or more pin fields are invalid.",
+		Message: "One or more fields are invalid.",
 		Details: details,
 	})
 }

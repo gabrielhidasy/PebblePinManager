@@ -5,6 +5,8 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
+
+	"github.com/gabrielhidasy/PebblePinManager/server/internal/store"
 )
 
 // Role represents the authorization level granted to a request.
@@ -50,7 +52,7 @@ func NewAuthenticator(writeToken, readToken string) *Authenticator {
 	return a
 }
 
-// Authenticate extracts a token from Authorization: Bearer <token> or X-API-Key and returns its Role.
+// Authenticate extracts a token from Authorization: Bearer <token> or X-API-Key and returns its global Role.
 func (a *Authenticator) Authenticate(r *http.Request) Role {
 	token, ok := extractToken(r)
 	if !ok {
@@ -70,6 +72,63 @@ func (a *Authenticator) Authenticate(r *http.Request) Role {
 		return RoleRead
 	}
 	return RoleNone
+}
+
+type userAuthResult struct {
+	role         Role
+	isAdmin      bool
+	isGlobalRead bool
+	userExists   bool
+}
+
+// AuthenticateForUser authenticates a request against global admin/read tokens and the target user's scoped tokens.
+// All digest comparisons execute in constant time without short-circuiting to prevent timing or user-enumeration leaks.
+func (a *Authenticator) AuthenticateForUser(r *http.Request, userID string, users *store.UserManager) userAuthResult {
+	token, ok := extractToken(r)
+	if !ok {
+		return userAuthResult{}
+	}
+
+	presented := sha256.Sum256([]byte(token))
+
+	globalWrite := subtle.ConstantTimeCompare(presented[:], a.writeDigest[:]) == 1 && a.hasWrite
+	globalRead := subtle.ConstantTimeCompare(presented[:], a.readDigest[:]) == 1 && a.hasRead
+
+	var userWrite, userRead, exists bool
+	if users != nil {
+		userWrite, userRead, exists = users.AuthenticateUser(userID, presented)
+	}
+
+	if globalWrite {
+		return userAuthResult{
+			role:       RoleWrite,
+			isAdmin:    true,
+			userExists: exists,
+		}
+	}
+	if userWrite {
+		return userAuthResult{
+			role:       RoleWrite,
+			userExists: true,
+		}
+	}
+	if userRead {
+		return userAuthResult{
+			role:       RoleRead,
+			userExists: true,
+		}
+	}
+	if globalRead {
+		return userAuthResult{
+			role:         RoleNone,
+			isGlobalRead: true,
+			userExists:   exists,
+		}
+	}
+	return userAuthResult{
+		role:       RoleNone,
+		userExists: exists,
+	}
 }
 
 func extractToken(r *http.Request) (string, bool) {

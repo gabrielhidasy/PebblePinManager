@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ const (
 	DefaultAddr      = ":8080"
 	DefaultDataFile  = "/data/pins.json"
 	DefaultRetention = 48 * time.Hour
+	DefaultMaxUsers  = 1000
 
 	maxServerNameLen = 80
 )
@@ -25,6 +27,8 @@ type Config struct {
 	WriteToken       string
 	ReadToken        string
 	DataFile         string
+	DataDir          string
+	MaxUsers         int
 	Retention        time.Duration
 	TrustProxy       bool
 	LogLevel         slog.Level
@@ -38,6 +42,7 @@ func LoadFromEnv(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		Addr:      DefaultAddr,
 		DataFile:  DefaultDataFile,
+		MaxUsers:  DefaultMaxUsers,
 		Retention: DefaultRetention,
 		LogLevel:  slog.LevelInfo,
 	}
@@ -48,6 +53,23 @@ func LoadFromEnv(getenv func(string) string) (Config, error) {
 
 	if v := strings.TrimSpace(getenv("PIN_SERVER_DATA_FILE")); v != "" {
 		cfg.DataFile = v
+	}
+
+	if v := strings.TrimSpace(getenv("PIN_SERVER_DATA_DIR")); v != "" {
+		cfg.DataDir = v
+	} else {
+		cfg.DataDir = filepath.Dir(cfg.DataFile)
+	}
+
+	if v := strings.TrimSpace(getenv("PIN_SERVER_MAX_USERS")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid PIN_SERVER_MAX_USERS %q: %w", v, err)
+		}
+		if n < 0 {
+			return Config{}, fmt.Errorf("PIN_SERVER_MAX_USERS must be >= 0 (got %d)", n)
+		}
+		cfg.MaxUsers = n
 	}
 
 	if v := strings.TrimSpace(getenv("PIN_SERVER_RETENTION")); v != "" {
@@ -146,6 +168,8 @@ func (c Config) RedactedSummary() []any {
 	return []any{
 		"addr", c.Addr,
 		"dataFile", c.DataFile,
+		"dataDir", c.DataDir,
+		"maxUsers", c.MaxUsers,
 		"retention", c.Retention.String(),
 		"trustProxy", c.TrustProxy,
 		"registrationMode", c.RegistrationMode,
