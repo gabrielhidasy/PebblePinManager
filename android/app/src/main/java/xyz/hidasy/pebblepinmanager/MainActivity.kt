@@ -155,6 +155,7 @@ class MainActivity : ComponentActivity() {
 
     private var handoffCapabilities: PhoneHandoffCapabilities? by mutableStateOf(null)
     private var isHandoffBannerDismissed: Boolean by mutableStateOf(false)
+    private var pendingPairingDeepLink: String? by mutableStateOf(null)
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -174,6 +175,7 @@ class MainActivity : ComponentActivity() {
         appContainer.phoneAppLauncher.cancelHandoffNotification()
         isHandoffBannerDismissed = appContainer.watchHandoffPromptPreferences.isPermissionBannerDismissed()
         refreshHandoffCapabilities()
+        capturePairingDeepLink(intent)
         setContent {
             val appSettings by appContainer.appSettingsRepository
                 .observeSettings()
@@ -190,6 +192,8 @@ class MainActivity : ComponentActivity() {
                     devModeViewModel = devModeViewModel,
                     handoffCapabilities = handoffCapabilities,
                     isHandoffBannerDismissed = isHandoffBannerDismissed,
+                    pendingPairingDeepLink = pendingPairingDeepLink,
+                    onConsumePairingDeepLink = { pendingPairingDeepLink = null },
                     onDismissHandoffBanner = ::dismissHandoffBanner,
                     onRequestNotificationPermission = ::requestNotificationPermissionOrSettings,
                     onOpenNotificationSettings = ::openNotificationSettings,
@@ -212,6 +216,18 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         appContainer.phoneAppLauncher.cancelHandoffNotification()
         refreshHandoffCapabilities()
+        capturePairingDeepLink(intent)
+    }
+
+    private fun capturePairingDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (intent.action != Intent.ACTION_VIEW) return
+        if (!"pebblepin".equals(data.scheme, ignoreCase = true)) return
+        val raw = data.toString()
+        if (raw.isNotBlank()) {
+            pendingPairingDeepLink = raw
+            intent.data = null
+        }
     }
 
     private fun setRunWithoutWatch(enabled: Boolean) {
@@ -284,6 +300,8 @@ private fun PebblePinManagerRoot(
     devModeViewModel: DevModeViewModel?,
     handoffCapabilities: PhoneHandoffCapabilities?,
     isHandoffBannerDismissed: Boolean,
+    pendingPairingDeepLink: String?,
+    onConsumePairingDeepLink: () -> Unit,
     onDismissHandoffBanner: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
@@ -313,6 +331,13 @@ private fun PebblePinManagerRoot(
         if (!isDevModeEnabled && selectedTab == AppTab.DEV) {
             selectedTab = AppTab.NOTIFICATIONS
         }
+    }
+
+    LaunchedEffect(pendingPairingDeepLink) {
+        val rawUri = pendingPairingDeepLink ?: return@LaunchedEffect
+        selectedTab = AppTab.REMOTE_FEEDS
+        remoteFeedsViewModel.onPairingPayloadScanned(rawUri, fromDeepLink = true)
+        onConsumePairingDeepLink()
     }
 
     val bottomNavigation: @Composable () -> Unit = {

@@ -15,6 +15,11 @@ services:
       PIN_SERVER_RETENTION: "${PIN_SERVER_RETENTION:-48h}"
       PIN_SERVER_TRUST_PROXY: "${PIN_SERVER_TRUST_PROXY:-true}"
       PIN_SERVER_LOG_LEVEL: "${PIN_SERVER_LOG_LEVEL:-info}"
+      # Temporary QR pairing page at /register (set true only while pairing, then revert to false).
+      PIN_SERVER_REGISTRATION_MODE: "${PIN_SERVER_REGISTRATION_MODE:-false}"
+      # Optional public base URL (e.g. https://pins.example.com) and friendly feed name for /register QR codes.
+      PIN_SERVER_PUBLIC_URL: "${PIN_SERVER_PUBLIC_URL:-}"
+      PIN_SERVER_NAME: "${PIN_SERVER_NAME:-}"
       # Full read-write token for scripts, webhooks, and cron jobs publishing pins.
       PIN_SERVER_WRITE_TOKEN: "${PIN_SERVER_WRITE_TOKEN:?Set PIN_SERVER_WRITE_TOKEN in .env}"
       # Optional read-only token for Pin Manager for Pebble on Android.

@@ -82,3 +82,23 @@ For a given configured feed (`source = REMOTE_URL`, `sourceKey = "remote:<feedId
    - If a remote pin `id` collides with an existing manual, auto-pin, or other feed's pin, the conflicting remote entry is skipped with a diagnostic.
    - If an existing remote pin `id` is still present in the feed but fails per-entry validation on a given sync, the update is skipped with a diagnostic instead of deleting the previously synced pin.
    - If the root payload is malformed, HTTP fails, or `schemaVersion` is unsupported, no pins are modified or deleted.
+
+## QR Code Pairing Contract (`pebblepin://pair`, v1)
+
+When the companion server is started in temporary registration mode (`PIN_SERVER_REGISTRATION_MODE=true`), `GET /register` renders a QR code encoding a `pebblepin://pair` URI for instant pairing with the Android app:
+
+```text
+pebblepin://pair?v=1&url=https%3A%2F%2Fpins.example.com%2Fpins.json&auth=bearer&token=<READ_TOKEN>&name=Home%20Pin%20Server
+```
+
+| Query Parameter | Required | Description |
+| :--- | :--- | :--- |
+| `v` | **Yes** | Pairing payload schema version (`1`). |
+| `url` | **Yes** | Full JSON feed URL (`https://.../pins.json`, or `http://...` for local LAN testing). |
+| `auth` | No | Authentication scheme: `bearer` (default when `token` is present), `apikey`, `basic`, or `none`. |
+| `token` | When `auth` is `bearer` or `apikey` | Authentication token (companion server prefers `PIN_SERVER_READ_TOKEN`). |
+| `header` | No | Custom header name when `auth=apikey` (defaults to `X-API-Key`). |
+| `user` / `pass` | When `auth=basic` | HTTP Basic credentials. |
+| `name` | No | Optional friendly feed display name (up to 80 chars). |
+| `interval` | No | Optional background polling interval in minutes (`0` for manual, or `>= 15`; defaults to `60`). |
+| `allowHttp` | No | Set to `1` for `http://` LAN feeds. Cleartext HTTP QR codes always require explicit confirmation in the Android app before saving. |

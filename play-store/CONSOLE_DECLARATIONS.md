@@ -83,6 +83,7 @@ Complete reference for every Play Console policy form and store setting for **Pi
 | Manifest Entry / Capability | Play Console Declaration Form Required? | Status & Notes |
 | :--- | :--- | :--- |
 | `android.permission.INTERNET` & `ACCESS_NETWORK_STATE` | No | Standard permissions, **strictly opt-in** — dormant unless the user explicitly adds a Remote Pin Feed JSON URL (`#95`). HTTPS enforced by default; auth secrets encrypted via Android Keystore and excluded from Auto Backup. |
+| `android.permission.CAMERA` (`android.hardware.camera` `required="false"`) | No | Optional runtime permission requested only if the user taps **"Scan QR"** to pair a companion pin server (`/register`). Frames are decoded strictly on-device in memory (CameraX + ZXing) and never saved or transmitted. |
 | `android.permission.POST_NOTIFICATIONS` | No | Standard runtime permission (Android 13+), optional, used solely for watch handoff tap-to-open prompt. |
 | `android.permission.SYSTEM_ALERT_WINDOW` | No | Special permission, optional, off by default, never draws overlays, used solely as Android 10+ BAL exemption for watch "Open Phone App". Covered in [`REVIEWER_NOTES.md`](REVIEWER_NOTES.md) & `full_description.txt`. |
 | `android.permission.BIND_NOTIFICATION_LISTENER_SERVICE` | No | User-granted system setting, off by default, gated by `#78` Prominent Disclosure modal, 100% on-device. |

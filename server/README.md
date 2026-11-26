@@ -9,6 +9,7 @@ A lightweight, zero-dependency Go HTTP server that stores Pebble Timeline pins d
 - **Scoped Token Authentication**: Constant-time SHA-256 token verification via `Authorization: Bearer <token>` or `X-API-Key: <token>`, supporting optional separate **read-only** (phone) and **read-write** (automation/scripts) tokens. Raw tokens are never logged.
 - **CRUD Management API**: Create (`POST`), upsert by stable ID (`PUT`), list (`GET`), inspect (`GET /{id}`), and delete (`DELETE`) pins with full `TimelineEvent` validation.
 - **Automatic Retention**: Optionally expires pins whose end time (`startTime + durationMinutes`) is older than `PIN_SERVER_RETENTION` (default `48h`, matching Pebble Timeline's 2-day past window).
+- **QR Code Registration Mode**: Opt-in `PIN_SERVER_REGISTRATION_MODE=true` enables a self-contained `/register` HTML page with an inline SVG QR code for instant pairing with the Android app (disabled by default — returns `404` when off).
 - **Durable Atomic Storage**: Persists pins to a single JSON file via temp-file + `fsync` + atomic rename.
 - **Containerized**: Static scratch Docker image running as non-root (`65532:65532`) with a built-in `-healthcheck` probe and hardened `docker-compose.yml`.
 
@@ -69,8 +70,11 @@ Unknown JSON fields are rejected with `400 Bad Request`.
 | `PIN_SERVER_READ_TOKEN_FILE` | — | Path to file containing the read-only token. |
 | `PIN_SERVER_DATA_FILE` | `/data/pins.json` | Path to the persistent JSON storage file. |
 | `PIN_SERVER_RETENTION` | `48h` | Go duration after a pin's end time before it expires from the feed. Set `0` to disable automatic expiration. |
-| `PIN_SERVER_TRUST_PROXY` | `false` | If `true`, record client IP from `X-Forwarded-For` / `X-Real-IP` in access logs. |
+| `PIN_SERVER_TRUST_PROXY` | `false` | If `true`, record client IP from `X-Forwarded-For` / `X-Real-IP` in access logs and respect `X-Forwarded-Proto` / `X-Forwarded-Host` on `/register`. |
 | `PIN_SERVER_LOG_LEVEL` | `info` | Structured JSON log level: `debug`, `info`, `warn`, or `error`. |
+| `PIN_SERVER_REGISTRATION_MODE` | `false` | When `true`, enables `GET /register` showing a pairing QR code for the Android app. **Disable and restart after pairing.** |
+| `PIN_SERVER_PUBLIC_URL` | — | Optional public base URL (e.g. `https://pins.example.com`) encoded in `/register` QR codes. Auto-detected from the incoming request when unset. |
+| `PIN_SERVER_NAME` | — | Optional friendly feed name (max 80 chars) embedded in `/register` QR codes. |
 
 \* At least one of `PIN_SERVER_WRITE_TOKEN` (or `PIN_SERVER_TOKEN`) or `PIN_SERVER_READ_TOKEN` must be configured; the server refuses to start unauthenticated.
 
@@ -87,6 +91,7 @@ openssl rand -hex 32
 | Method & Path | Auth Role | Description |
 |---|---|---|
 | `GET` / `HEAD` `/healthz` | None | Liveness probe returning `{"status":"ok"}`. |
+| `GET` / `HEAD` `/register` | Registration Mode only | Self-contained HTML page with QR code (`pebblepin://pair?...`) for instant Android pairing. Only registered when `PIN_SERVER_REGISTRATION_MODE=true` (returns `404` otherwise). Embeds `PIN_SERVER_READ_TOKEN` when configured (falling back to write token with a warning). |
 | `GET` / `HEAD` `/pins.json` | Read or Write | Authenticated JSON pin feed with `ETag`, `Last-Modified`, `If-None-Match` (`304`), and `If-Modified-Since` (`304`). |
 | `GET` / `HEAD` `/api/v1/pins.json` | Read or Write | Alias for `/pins.json`. |
 | `GET` / `HEAD` `/api/v1/pins` | Read or Write | List active pins (`?includeExpired=true` includes expired pins not yet pruned). |

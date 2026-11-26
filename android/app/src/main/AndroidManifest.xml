@@ -10,6 +10,16 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!--
+        Optional camera access used solely when the user taps "Scan QR" to pair with a
+        self-hosted companion pin server's /register page. Frames are decoded transiently in memory
+        on-device and are never stored or transmitted.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+    <!--
         Required on Android 13+ (API 33+) to show a high-priority tap-to-open notification when
         "Open Phone App" is triggered on the Pebble watch while PebblePinManager is in the background.
     -->
@@ -54,10 +64,19 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="pebblepin"
+                    android:host="pair" />
             </intent-filter>
         </activity>
 

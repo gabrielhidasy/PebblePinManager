@@ -48,12 +48,13 @@ func WithServerClock(now func() time.Time) ServerOption {
 
 // Server exposes the authenticated Pebble pin feed and CRUD HTTP API.
 type Server struct {
-	store      *store.Store
-	auth       *Authenticator
-	logger     *slog.Logger
-	trustProxy bool
-	now        func() time.Time
-	mux        *http.ServeMux
+	store        *store.Store
+	auth         *Authenticator
+	logger       *slog.Logger
+	trustProxy   bool
+	registration RegistrationConfig
+	now          func() time.Time
+	mux          *http.ServeMux
 }
 
 // NewServer constructs a configured HTTP handler for the companion pin server.
@@ -76,6 +77,11 @@ func NewServer(st *store.Store, auth *Authenticator, opts ...ServerOption) *Serv
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("HEAD /healthz", s.handleHealthz)
+
+	if s.registration.Enabled {
+		s.mux.HandleFunc("GET /register", s.handleRegister)
+		s.mux.HandleFunc("HEAD /register", s.handleRegister)
+	}
 
 	s.mux.HandleFunc("GET /pins.json", s.requireAuth(RoleRead, s.handleFeed))
 	s.mux.HandleFunc("HEAD /pins.json", s.requireAuth(RoleRead, s.handleFeed))

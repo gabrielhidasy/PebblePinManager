@@ -13,6 +13,9 @@ import xyz.hidasy.pebblepinmanager.pebble.PebbleCompanionStatus
 import xyz.hidasy.pebblepinmanager.pebble.PinDeleteResult
 import xyz.hidasy.pebblepinmanager.pebble.TimelinePinSender
 import xyz.hidasy.pebblepinmanager.remote.RemoteFeedAuthType
+import xyz.hidasy.pebblepinmanager.remote.RemoteFeedPairingParseResult
+import xyz.hidasy.pebblepinmanager.remote.RemoteFeedPairingParser
+import xyz.hidasy.pebblepinmanager.remote.RemoteFeedPairingPayload
 import xyz.hidasy.pebblepinmanager.remote.RemoteFeedSecret
 import xyz.hidasy.pebblepinmanager.remote.RemoteFeedSecretStore
 import xyz.hidasy.pebblepinmanager.remote.RemoteFeedSettingsRepository
@@ -112,6 +115,242 @@ class RemoteFeedsViewModel(
 
     fun dismissEditorDialog() {
         _uiState.update { it.copy(editorState = null) }
+    }
+
+    /**
+     * Handles a scanned QR code or `pebblepin://pair` deep link.
+     *
+     * Returns `null` if the payload was valid and accepted, or a user-facing error message if the
+     * QR code was not a valid pairing payload.
+     *
+     * HTTPS QR codes scanned in-app pair and trigger an immediate sync right away. Cleartext HTTP
+     * URLs and external deep links open a confirmation dialog first so the user explicitly reviews
+     * the server address before saving.
+     */
+    fun onPairingPayloadScanned(
+        rawPayload: String,
+        fromDeepLink: Boolean = false,
+    ): String? {
+        val parsed = RemoteFeedPairingParser.parse(rawPayload)
+        if (parsed is RemoteFeedPairingParseResult.Invalid) {
+            if (fromDeepLink) {
+                _uiState.update {
+                    it.copy(
+                        feedback = SendFeedback.Error(
+                            headline = "Invalid pairing link",
+                            details = parsed.message,
+                        ),
+                    )
+                }
+            }
+            return parsed.message
+        }
+
+        val payload = (parsed as RemoteFeedPairingParseResult.Valid).payload
+        val existing = findMatchingFeedByUrl(payload.url)
+
+        if (!fromDeepLink && !payload.isCleartextHttp) {
+            pairAndSync(payload = payload, existingFeedId = existing?.id)
+        } else {
+            _uiState.update {
+                it.copy(
+                    pendingPairing = PendingQrPairing(
+                        payload = payload,
+                        existingFeedId = existing?.id,
+                        existingFeedName = existing?.displayName,
+                        fromDeepLink = fromDeepLink,
+                    ),
+                    feedback = null,
+                )
+            }
+        }
+        return null
+    }
+
+    /**
+     * Populates the currently open Add / Edit Remote Feed dialog from a scanned QR code.
+     * Returns `null` on success or an error message if the scanned payload is invalid.
+     */
+    fun applyPairingToEditor(rawPayload: String): String? {
+        val parsed = RemoteFeedPairingParser.parse(rawPayload)
+        if (parsed is RemoteFeedPairingParseResult.Invalid) {
+            return parsed.message
+        }
+        val payload = (parsed as RemoteFeedPairingParseResult.Valid).payload
+        val secretInput = when (payload.authType) {
+            RemoteFeedAuthType.BEARER_TOKEN,
+            RemoteFeedAuthType.API_KEY_HEADER,
+            -> payload.secret?.token.orEmpty()
+            RemoteFeedAuthType.BASIC -> payload.secret?.basicPassword.orEmpty()
+            RemoteFeedAuthType.NONE -> ""
+        }
+        updateEditor { current ->
+            current.copy(
+                name = payload.name.ifBlank { current.name },
+                url = payload.url,
+                authType = payload.authType,
+                apiKeyHeaderName = payload.apiKeyHeaderName,
+                basicUsername = payload.basicUsername,
+                secretInput = secretInput,
+                clearStoredSecret = false,
+                allowCleartextHttp = payload.isCleartextHttp,
+                isEnabled = true,
+                pollingIntervalMinutes = payload.pollingIntervalMinutes,
+                urlError = null,
+                headerNameError = null,
+                authError = null,
+                testResult = null,
+            )
+        }
+        return null
+    }
+
+    fun confirmPendingPairing() {
+        val pending = _uiState.value.pendingPairing ?: return
+        _uiState.update { it.copy(pendingPairing = null) }
+        pairAndSync(
+            payload = pending.payload,
+            existingFeedId = pending.existingFeedId,
+        )
+    }
+
+    fun customizePendingPairing() {
+        val pending = _uiState.value.pendingPairing ?: return
+        val payload = pending.payload
+        val secretInput = when (payload.authType) {
+            RemoteFeedAuthType.BEARER_TOKEN,
+            RemoteFeedAuthType.API_KEY_HEADER,
+            -> payload.secret?.token.orEmpty()
+            RemoteFeedAuthType.BASIC -> payload.secret?.basicPassword.orEmpty()
+            RemoteFeedAuthType.NONE -> ""
+        }
+        val hasStoredSecret = pending.existingFeedId != null &&
+            pending.existingFeedId in _uiState.value.feedIdsWithSecrets
+
+        _uiState.update {
+            it.copy(
+                pendingPairing = null,
+                editorState = RemoteFeedEditorState(
+                    editingFeedId = pending.existingFeedId,
+                    name = payload.name,
+                    url = payload.url,
+                    authType = payload.authType,
+                    apiKeyHeaderName = payload.apiKeyHeaderName,
+                    basicUsername = payload.basicUsername,
+                    secretInput = secretInput,
+                    hasStoredSecret = hasStoredSecret,
+                    clearStoredSecret = false,
+                    allowCleartextHttp = payload.isCleartextHttp,
+                    isEnabled = true,
+                    pollingIntervalMinutes = payload.pollingIntervalMinutes,
+                ),
+            )
+        }
+    }
+
+    fun dismissPendingPairing() {
+        _uiState.update { it.copy(pendingPairing = null) }
+    }
+
+    private fun findMatchingFeedByUrl(url: String): RemotePinFeedConfig? {
+        val normalizedTarget = url.trim().trimEnd('/')
+        return _uiState.value.feeds.firstOrNull { feed ->
+            feed.url.trim().trimEnd('/').equals(normalizedTarget, ignoreCase = false)
+        }
+    }
+
+    private fun pairAndSync(
+        payload: RemoteFeedPairingPayload,
+        existingFeedId: String?,
+    ) {
+        viewModelScope.launch {
+            val existing = existingFeedId?.let { settingsRepository.getFeed(it) }
+            val feedToSave = if (existing != null) {
+                existing.copy(
+                    name = payload.name.ifBlank { existing.name },
+                    url = payload.url,
+                    authType = payload.authType,
+                    apiKeyHeaderName = payload.apiKeyHeaderName,
+                    basicUsername = payload.basicUsername,
+                    allowCleartextHttp = payload.isCleartextHttp,
+                    isEnabled = true,
+                    pollingIntervalMinutes = payload.pollingIntervalMinutes,
+                    etag = null,
+                    lastModified = null,
+                    lastError = null,
+                )
+            } else {
+                RemotePinFeedConfig(
+                    name = payload.name,
+                    url = payload.url,
+                    authType = payload.authType,
+                    apiKeyHeaderName = payload.apiKeyHeaderName,
+                    basicUsername = payload.basicUsername,
+                    allowCleartextHttp = payload.isCleartextHttp,
+                    isEnabled = true,
+                    pollingIntervalMinutes = payload.pollingIntervalMinutes,
+                )
+            }
+
+            val saved = settingsRepository.upsertFeed(feedToSave)
+            if (payload.authType == RemoteFeedAuthType.NONE || payload.secret == null || payload.secret.isBlank()) {
+                secretStore.deleteSecret(saved.id)
+            } else {
+                secretStore.putSecret(saved.id, payload.secret)
+            }
+
+            val updatedFeeds = settingsRepository.getSettings().feeds
+            syncScheduler.updateSchedule(updatedFeeds)
+
+            val actionVerb = if (existing != null) "Updated & paired" else "Paired"
+            _uiState.update { state ->
+                state.copy(
+                    syncingFeedIds = state.syncingFeedIds + saved.id,
+                    feedback = SendFeedback.Success(
+                        pinId = saved.id,
+                        headline = "$actionVerb \"${saved.displayName}\"",
+                        details = "Credentials encrypted on-device. Running initial sync...",
+                    ),
+                )
+            }
+
+            val outcome = syncEngine.syncFeed(feedId = saved.id, forceFullFetch = true)
+            val finalFeedback = when (outcome) {
+                is RemoteFeedSyncOutcome.Synced -> {
+                    val counts = "+${outcome.insertedCount} added, ~${outcome.updatedCount} updated, -${outcome.deletedCount} deleted"
+                    if (outcome.deliveryFailureCount > 0) {
+                        SendFeedback.Error(
+                            headline = "$actionVerb \"${saved.displayName}\" (watch delivery error)",
+                            details = "Feed saved, but initial sync had ${outcome.deliveryFailureCount} watch delivery error(s) ($counts).",
+                        )
+                    } else {
+                        SendFeedback.Success(
+                            pinId = saved.id,
+                            headline = "$actionVerb & synced \"${saved.displayName}\"",
+                            details = "$counts • ${outcome.activePinCount} active pin(s). Credentials encrypted on-device.",
+                        )
+                    }
+                }
+
+                is RemoteFeedSyncOutcome.NotModified -> SendFeedback.Success(
+                    pinId = saved.id,
+                    headline = "$actionVerb \"${saved.displayName}\"",
+                    details = "Server is up to date (${outcome.activePinCount} active pin(s)).",
+                )
+
+                is RemoteFeedSyncOutcome.Error -> SendFeedback.Error(
+                    headline = "$actionVerb \"${saved.displayName}\" (initial sync failed)",
+                    details = "Feed saved with encrypted credentials, but initial sync failed: ${outcome.message}",
+                )
+            }
+
+            _uiState.update { state ->
+                state.copy(
+                    syncingFeedIds = state.syncingFeedIds - saved.id,
+                    feedback = finalFeedback,
+                )
+            }
+        }
     }
 
     fun onEditorNameChange(value: String) {

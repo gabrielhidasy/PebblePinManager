@@ -10,6 +10,8 @@ work = "2.10.1"
 coroutines = "1.10.2"
 serializationJson = "1.10.0"
 pebblekit = "1.3.2"
+camerax = "1.4.2"
+zxingCore = "3.5.3"
 desugarJdkLibs = "2.1.5"
 junit = "4.13.2"
 
@@ -34,6 +36,11 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
 pebblekit-client = { module = "io.rebble.pebblekit2:client", version.ref = "pebblekit" }
 pebblekit-server = { module = "io.rebble.pebblekit2:server", version.ref = "pebblekit" }
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }

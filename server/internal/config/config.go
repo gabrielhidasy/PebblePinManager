@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -14,17 +15,22 @@ const (
 	DefaultAddr      = ":8080"
 	DefaultDataFile  = "/data/pins.json"
 	DefaultRetention = 48 * time.Hour
+
+	maxServerNameLen = 80
 )
 
 // Config holds runtime configuration for the companion pin server.
 type Config struct {
-	Addr       string
-	WriteToken string
-	ReadToken  string
-	DataFile   string
-	Retention  time.Duration
-	TrustProxy bool
-	LogLevel   slog.Level
+	Addr             string
+	WriteToken       string
+	ReadToken        string
+	DataFile         string
+	Retention        time.Duration
+	TrustProxy       bool
+	LogLevel         slog.Level
+	RegistrationMode bool
+	PublicURL        string
+	ServerName       string
 }
 
 // LoadFromEnv loads and validates Config using the provided environment lookup function.
@@ -71,6 +77,29 @@ func LoadFromEnv(getenv func(string) string) (Config, error) {
 		cfg.LogLevel = level
 	}
 
+	if v := strings.TrimSpace(getenv("PIN_SERVER_REGISTRATION_MODE")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid PIN_SERVER_REGISTRATION_MODE %q: %w", v, err)
+		}
+		cfg.RegistrationMode = b
+	}
+
+	if v := strings.TrimSpace(getenv("PIN_SERVER_PUBLIC_URL")); v != "" {
+		normalized, err := normalizePublicURL(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid PIN_SERVER_PUBLIC_URL %q: %w", v, err)
+		}
+		cfg.PublicURL = normalized
+	}
+
+	if v := strings.TrimSpace(getenv("PIN_SERVER_NAME")); v != "" {
+		if len([]rune(v)) > maxServerNameLen {
+			return Config{}, fmt.Errorf("PIN_SERVER_NAME must be at most %d characters", maxServerNameLen)
+		}
+		cfg.ServerName = v
+	}
+
 	writeToken, err := loadSecret(getenv, "PIN_SERVER_WRITE_TOKEN", "PIN_SERVER_WRITE_TOKEN_FILE")
 	if err != nil {
 		return Config{}, err
@@ -100,6 +129,18 @@ func LoadFromEnv(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
+// PairingToken returns the token and scope ("read" or "write") to embed in QR registration
+// payloads, preferring the least-privilege ReadToken when configured.
+func (c Config) PairingToken() (token string, scope string) {
+	if c.ReadToken != "" {
+		return c.ReadToken, "read"
+	}
+	if c.WriteToken != "" {
+		return c.WriteToken, "write"
+	}
+	return "", ""
+}
+
 // RedactedSummary returns log-safe attributes describing the configuration without any secret tokens.
 func (c Config) RedactedSummary() []any {
 	return []any{
@@ -107,9 +148,34 @@ func (c Config) RedactedSummary() []any {
 		"dataFile", c.DataFile,
 		"retention", c.Retention.String(),
 		"trustProxy", c.TrustProxy,
+		"registrationMode", c.RegistrationMode,
+		"publicUrlConfigured", c.PublicURL != "",
 		"writeTokenConfigured", c.WriteToken != "",
 		"readTokenConfigured", c.ReadToken != "",
 	}
+}
+
+func normalizePublicURL(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "https" && scheme != "http" {
+		return "", errors.New("scheme must be https or http")
+	}
+	if u.Host == "" {
+		return "", errors.New("host is required")
+	}
+	if u.User != nil {
+		return "", errors.New("must not contain embedded credentials")
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", errors.New("must not contain query parameters or fragments")
+	}
+	u.Scheme = scheme
+	u.Path = strings.TrimRight(u.Path, "/")
+	return u.String(), nil
 }
 
 func loadSecret(getenv func(string) string, envKey, fileKey string) (string, error) {

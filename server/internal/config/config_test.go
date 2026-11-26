@@ -38,6 +38,12 @@ func TestLoadFromEnv_DefaultsAndSingleToken(t *testing.T) {
 	if cfg.ReadToken != "" {
 		t.Errorf("ReadToken = %q, want empty", cfg.ReadToken)
 	}
+	if cfg.RegistrationMode {
+		t.Errorf("RegistrationMode = true, want false by default")
+	}
+	if tok, scope := cfg.PairingToken(); tok != "super-secret-write-token" || scope != "write" {
+		t.Errorf("PairingToken() = (%q, %q), want write token fallback", tok, scope)
+	}
 
 	summary := fmt.Sprint(cfg.RedactedSummary()...)
 	if strings.Contains(summary, "super-secret-write-token") {
@@ -45,7 +51,7 @@ func TestLoadFromEnv_DefaultsAndSingleToken(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnv_SeparateTokensFromFiles(t *testing.T) {
+func TestLoadFromEnv_SeparateTokensFromFilesAndRegistrationMode(t *testing.T) {
 	dir := t.TempDir()
 	writeFile := filepath.Join(dir, "write.secret")
 	readFile := filepath.Join(dir, "read.secret")
@@ -57,13 +63,16 @@ func TestLoadFromEnv_SeparateTokensFromFiles(t *testing.T) {
 	}
 
 	cfg, err := LoadFromEnv(mapEnv(map[string]string{
-		"PIN_SERVER_ADDR":             "127.0.0.1:9090",
-		"PIN_SERVER_DATA_FILE":        "/tmp/pins.json",
-		"PIN_SERVER_RETENTION":        "72h",
-		"PIN_SERVER_TRUST_PROXY":      "true",
-		"PIN_SERVER_LOG_LEVEL":        "debug",
-		"PIN_SERVER_WRITE_TOKEN_FILE": writeFile,
-		"PIN_SERVER_READ_TOKEN_FILE":  readFile,
+		"PIN_SERVER_ADDR":              "127.0.0.1:9090",
+		"PIN_SERVER_DATA_FILE":         "/tmp/pins.json",
+		"PIN_SERVER_RETENTION":         "72h",
+		"PIN_SERVER_TRUST_PROXY":       "true",
+		"PIN_SERVER_LOG_LEVEL":         "debug",
+		"PIN_SERVER_REGISTRATION_MODE": "true",
+		"PIN_SERVER_PUBLIC_URL":        "https://pins.example.com/pebble/",
+		"PIN_SERVER_NAME":              "Home Pin Server",
+		"PIN_SERVER_WRITE_TOKEN_FILE":  writeFile,
+		"PIN_SERVER_READ_TOKEN_FILE":   readFile,
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -84,11 +93,23 @@ func TestLoadFromEnv_SeparateTokensFromFiles(t *testing.T) {
 	if cfg.LogLevel != slog.LevelDebug {
 		t.Errorf("LogLevel = %v, want debug", cfg.LogLevel)
 	}
+	if !cfg.RegistrationMode {
+		t.Errorf("RegistrationMode = false, want true")
+	}
+	if cfg.PublicURL != "https://pins.example.com/pebble" {
+		t.Errorf("PublicURL = %q, want trimmed URL", cfg.PublicURL)
+	}
+	if cfg.ServerName != "Home Pin Server" {
+		t.Errorf("ServerName = %q", cfg.ServerName)
+	}
 	if cfg.WriteToken != "write-token-from-file" {
 		t.Errorf("WriteToken = %q", cfg.WriteToken)
 	}
 	if cfg.ReadToken != "read-token-from-file" {
 		t.Errorf("ReadToken = %q", cfg.ReadToken)
+	}
+	if tok, scope := cfg.PairingToken(); tok != "read-token-from-file" || scope != "read" {
+		t.Errorf("PairingToken() = (%q, %q), want read token preference", tok, scope)
 	}
 }
 
@@ -141,6 +162,41 @@ func TestLoadFromEnv_Errors(t *testing.T) {
 			env: map[string]string{
 				"PIN_SERVER_TOKEN":     "secret",
 				"PIN_SERVER_LOG_LEVEL": "verbose",
+			},
+		},
+		{
+			name: "invalid registration mode",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":             "secret",
+				"PIN_SERVER_REGISTRATION_MODE": "sometimes",
+			},
+		},
+		{
+			name: "invalid public url scheme",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":      "secret",
+				"PIN_SERVER_PUBLIC_URL": "ftp://pins.example.com",
+			},
+		},
+		{
+			name: "public url with credentials",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":      "secret",
+				"PIN_SERVER_PUBLIC_URL": "https://user:pass@pins.example.com",
+			},
+		},
+		{
+			name: "public url with query",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":      "secret",
+				"PIN_SERVER_PUBLIC_URL": "https://pins.example.com?foo=bar",
+			},
+		},
+		{
+			name: "server name too long",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN": "secret",
+				"PIN_SERVER_NAME":  strings.Repeat("a", 81),
 			},
 		},
 	}

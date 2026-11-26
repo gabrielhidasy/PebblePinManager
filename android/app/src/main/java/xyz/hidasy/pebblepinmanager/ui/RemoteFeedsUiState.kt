@@ -2,10 +2,25 @@ package xyz.hidasy.pebblepinmanager.ui
 
 import xyz.hidasy.pebblepinmanager.data.SentPinRecord
 import xyz.hidasy.pebblepinmanager.remote.RemoteFeedAuthType
+import xyz.hidasy.pebblepinmanager.remote.RemoteFeedPairingPayload
 import xyz.hidasy.pebblepinmanager.remote.RemoteFeedTestResult
 import xyz.hidasy.pebblepinmanager.remote.RemotePinFeedConfig
 import xyz.hidasy.pebblepinmanager.remote.RemotePinSourceKey
 import java.time.ZoneId
+
+/**
+ * Pending QR / deep-link pairing payload awaiting explicit user confirmation (shown for cleartext
+ * HTTP LAN URLs or external `pebblepin://pair` links).
+ */
+data class PendingQrPairing(
+    val payload: RemoteFeedPairingPayload,
+    val existingFeedId: String? = null,
+    val existingFeedName: String? = null,
+    val fromDeepLink: Boolean = false,
+) {
+    val isUpdatingExisting: Boolean
+        get() = existingFeedId != null
+}
 
 /**
  * Draft form state for the Add / Edit Remote Feed modal dialog.
@@ -46,6 +61,7 @@ data class RemoteFeedsUiState(
     val deletingPinId: String? = null,
     val expandedDiagnosticsFeedIds: Set<String> = emptySet(),
     val editorState: RemoteFeedEditorState? = null,
+    val pendingPairing: PendingQrPairing? = null,
     val feedback: SendFeedback? = null,
     val zoneId: ZoneId = ZoneId.systemDefault(),
 ) {

@@ -44,6 +44,7 @@ When you configure the opt-in **Auto-Pins** feature, Pin Manager for Pebble quer
 ## Android Permissions
 
 - **Internet & Network State (`INTERNET`, `ACCESS_NETWORK_STATE`, opt-in usage):** Used **strictly** when you explicitly configure a Remote Pin Feed URL (for manual **"Sync Now"** / **"Test Connection"** and optional periodic background polling via AndroidX WorkManager with a connected-network constraint). Unused and completely dormant if no remote feeds are configured.
+- **Camera (`CAMERA`, optional):** Requested at runtime **only** if you tap **"Scan QR"** in the **Feeds** tab to pair with a self-hosted companion pin server's `/register` QR code. Camera frames are decoded strictly on-device in memory via ZXing and are never saved, stored, or transmitted. You can also pair by pasting a `pebblepin://pair` URI without granting camera access.
 - **Post Notifications (`POST_NOTIFICATIONS`, optional, Android 13+):** Used solely to display a local tap-to-open notification when you trigger **Open Phone App** from your Pebble watch while Pin Manager for Pebble is in the background.
 - **Display Over Other Apps (`SYSTEM_ALERT_WINDOW`, optional, Android 10+):** Used only if you explicitly enable it in Android settings so **Open Phone App** on your watch can launch Pin Manager for Pebble immediately without an intermediate notification. It is never used to draw overlays over other apps or read screen content.
 

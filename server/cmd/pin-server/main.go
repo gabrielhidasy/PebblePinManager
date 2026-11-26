@@ -55,12 +55,25 @@ func main() {
 	}
 
 	auth := api.NewAuthenticator(cfg.WriteToken, cfg.ReadToken)
-	handler := api.NewServer(
-		st,
-		auth,
+	opts := []api.ServerOption{
 		api.WithLogger(logger),
 		api.WithTrustProxy(cfg.TrustProxy),
-	)
+	}
+	if cfg.RegistrationMode {
+		pairingToken, scope := cfg.PairingToken()
+		logger.Warn(
+			"registration mode is enabled; /register exposes the client pairing QR code — disable PIN_SERVER_REGISTRATION_MODE and restart after pairing",
+			"tokenScope", scope,
+		)
+		opts = append(opts, api.WithRegistration(api.RegistrationConfig{
+			Enabled:    true,
+			Token:      pairingToken,
+			TokenScope: scope,
+			PublicURL:  cfg.PublicURL,
+			ServerName: cfg.ServerName,
+		}))
+	}
+	handler := api.NewServer(st, auth, opts...)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,

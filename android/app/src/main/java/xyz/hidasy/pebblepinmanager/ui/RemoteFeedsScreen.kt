@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Sync
@@ -100,6 +101,11 @@ fun RemoteFeedsRoute(
         onOpenAddFeed = viewModel::openAddFeedDialog,
         onOpenEditFeed = viewModel::openEditFeedDialog,
         onDismissEditor = viewModel::dismissEditorDialog,
+        onPairingPayloadScanned = { raw -> viewModel.onPairingPayloadScanned(raw, fromDeepLink = false) },
+        onApplyPairingToEditor = viewModel::applyPairingToEditor,
+        onConfirmPendingPairing = viewModel::confirmPendingPairing,
+        onCustomizePendingPairing = viewModel::customizePendingPairing,
+        onDismissPendingPairing = viewModel::dismissPendingPairing,
         onEditorNameChange = viewModel::onEditorNameChange,
         onEditorUrlChange = viewModel::onEditorUrlChange,
         onEditorAuthTypeChange = viewModel::onEditorAuthTypeChange,
@@ -131,6 +137,11 @@ fun RemoteFeedsScreen(
     onOpenAddFeed: () -> Unit,
     onOpenEditFeed: (RemotePinFeedConfig) -> Unit,
     onDismissEditor: () -> Unit,
+    onPairingPayloadScanned: (String) -> String? = { null },
+    onApplyPairingToEditor: (String) -> String? = { null },
+    onConfirmPendingPairing: () -> Unit = {},
+    onCustomizePendingPairing: () -> Unit = {},
+    onDismissPendingPairing: () -> Unit = {},
     onEditorNameChange: (String) -> Unit,
     onEditorUrlChange: (String) -> Unit,
     onEditorAuthTypeChange: (RemoteFeedAuthType) -> Unit,
@@ -157,6 +168,7 @@ fun RemoteFeedsScreen(
     var feedPendingDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteFeedPinsToo by rememberSaveable { mutableStateOf(true) }
     var pinPendingDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var activeScannerMode by rememberSaveable { mutableStateOf<String?>(null) }
 
     val feedPendingDelete = feedPendingDeleteId?.let { id ->
         uiState.feeds.firstOrNull { it.id == id }
@@ -202,6 +214,12 @@ fun RemoteFeedsScreen(
                             }
                         }
                     }
+                    IconButton(onClick = { activeScannerMode = "instant" }) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = "Scan server pairing QR code",
+                        )
+                    }
                     IconButton(onClick = onOpenAddFeed) {
                         Icon(
                             imageVector = Icons.Default.Add,
@@ -232,6 +250,7 @@ fun RemoteFeedsScreen(
                 enabledCount = uiState.enabledFeedCount,
                 syncedPinCount = uiState.remotePinCount,
                 isSyncing = uiState.isAnySyncInProgress,
+                onScanQr = { activeScannerMode = "instant" },
                 onAddFeed = onOpenAddFeed,
                 onSyncAll = onSyncAll,
             )
@@ -241,7 +260,10 @@ fun RemoteFeedsScreen(
             }
 
             if (uiState.feeds.isEmpty()) {
-                EmptyFeedsCard(onAddFeed = onOpenAddFeed)
+                EmptyFeedsCard(
+                    onScanQr = { activeScannerMode = "instant" },
+                    onAddFeed = onOpenAddFeed,
+                )
             } else {
                 Text(
                     text = "Configured Feeds (${uiState.feeds.size})",
@@ -289,9 +311,32 @@ fun RemoteFeedsScreen(
             onAllowCleartextHttpChange = onEditorAllowCleartextHttpChange,
             onEnabledChange = onEditorEnabledChange,
             onPollingIntervalChange = onEditorPollingIntervalChange,
+            onScanQr = { activeScannerMode = "editor" },
             onTestConnection = onTestEditorConnection,
             onSave = onSaveEditorFeed,
             onDismiss = onDismissEditor,
+        )
+    }
+
+    uiState.pendingPairing?.let { pending ->
+        QrPairingConfirmationDialog(
+            pending = pending,
+            onConfirm = onConfirmPendingPairing,
+            onCustomize = onCustomizePendingPairing,
+            onDismiss = onDismissPendingPairing,
+        )
+    }
+
+    activeScannerMode?.let { mode ->
+        QrPairingScannerDialog(
+            onPayloadDetected = { rawPayload ->
+                if (mode == "editor") {
+                    onApplyPairingToEditor(rawPayload)
+                } else {
+                    onPairingPayloadScanned(rawPayload)
+                }
+            },
+            onDismiss = { activeScannerMode = null },
         )
     }
 
@@ -381,6 +426,7 @@ private fun RemoteSyncOverviewCard(
     enabledCount: Int,
     syncedPinCount: Int,
     isSyncing: Boolean,
+    onScanQr: () -> Unit,
     onAddFeed: () -> Unit,
     onSyncAll: () -> Unit,
 ) {
@@ -457,16 +503,16 @@ private fun RemoteSyncOverviewCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(
-                    onClick = onAddFeed,
+                    onClick = onScanQr,
                     modifier = Modifier.weight(1f),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Add,
+                        imageVector = Icons.Default.QrCodeScanner,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("Add Feed")
+                    Text("Scan QR", maxLines = 1)
                 }
                 if (enabledCount > 0) {
                     OutlinedButton(
@@ -480,7 +526,7 @@ private fun RemoteSyncOverviewCard(
                                 strokeWidth = 2.dp,
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("Syncing...")
+                            Text("Syncing...", maxLines = 1)
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Sync,
@@ -488,8 +534,21 @@ private fun RemoteSyncOverviewCard(
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("Sync Now")
+                            Text("Sync Now", maxLines = 1)
                         }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onAddFeed,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add Feed", maxLines = 1)
                     }
                 }
             }
@@ -499,6 +558,7 @@ private fun RemoteSyncOverviewCard(
 
 @Composable
 private fun EmptyFeedsCard(
+    onScanQr: () -> Unit,
     onAddFeed: () -> Unit,
 ) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
@@ -521,19 +581,32 @@ private fun EmptyFeedsCard(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "Add an authenticated HTTPS JSON URL (schemaVersion: 1) to sync pins automatically via WorkManager or on demand. Supports Bearer tokens, API key headers, HTTP Basic auth, and ETag (304 Not Modified) caching.",
+                text = "Scan the QR code from your companion server's /register page for instant pairing, or manually add an authenticated HTTPS JSON URL (schemaVersion: 1).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-            OutlinedButton(onClick = onAddFeed) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text("Configure Remote URL")
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(onClick = onScanQr) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Scan QR")
+                }
+                OutlinedButton(onClick = onAddFeed) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("Add Manually")
+                }
             }
         }
     }
@@ -961,6 +1034,7 @@ private fun RemoteFeedEditorDialog(
     onAllowCleartextHttpChange: (Boolean) -> Unit,
     onEnabledChange: (Boolean) -> Unit,
     onPollingIntervalChange: (Int) -> Unit,
+    onScanQr: () -> Unit,
     onTestConnection: () -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit,
@@ -979,6 +1053,20 @@ private fun RemoteFeedEditorDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                OutlinedButton(
+                    onClick = onScanQr,
+                    enabled = !editor.isTesting,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Fill from Server QR Code")
+                }
+
                 OutlinedTextField(
                     value = editor.name,
                     onValueChange = onNameChange,
@@ -1308,6 +1396,113 @@ private fun TestResultBanner(result: RemoteFeedTestResult) {
             }
         }
     }
+}
+
+@Composable
+private fun QrPairingConfirmationDialog(
+    pending: PendingQrPairing,
+    onConfirm: () -> Unit,
+    onCustomize: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val payload = pending.payload
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (pending.isUpdatingExisting) {
+                    "Update Paired Pin Server?"
+                } else {
+                    "Pair Remote Pin Server?"
+                },
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = if (pending.isUpdatingExisting) {
+                        "This pairing payload matches your existing feed \"${pending.existingFeedName ?: payload.displayName}\" and will update its credentials."
+                    } else {
+                        "Review the companion server details before saving credentials to this device:"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = payload.displayName,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = payload.url,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "Auth: ${payload.authType.label} • Poll: ${RemoteFeedPollingOption.formatInterval(payload.pollingIntervalMinutes)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                if (payload.isCleartextHttp) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = "Unencrypted HTTP (LAN testing): Credentials will be sent in cleartext. Confirm only on a trusted local network.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text(if (payload.isCleartextHttp) "Allow HTTP & Pair" else "Pair & Sync")
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onCustomize) {
+                    Text("Customize")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        },
+    )
 }
 
 @Composable

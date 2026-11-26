@@ -154,14 +154,11 @@ Pins flow from **JSON Server -> Pin Manager for Pebble (Android) -> Pebble Watch
 1. **Connect your watch to Pin Manager for Pebble:**
    - Ensure your Pebble watch is paired with the **Core Devices Pebble app** (or **microPebble**) and that both the companion watchapp (`.pbw`) and Android app (`.apk`) are installed (see [INSTALL.md](INSTALL.md#installing-both-apps)).
    - Open **Pin Manager for Pebble** on your phone and verify the status card on the **Pins** tab shows your watch as connected.
-2. **Add your server in the Android app:**
-   - Open the **Feeds** tab in the bottom navigation bar and tap **Add Feed** (or the `+` button).
-   - Optionally enter a **Feed Name** (for example, `Home Pin Server`).
-   - Enter your **Remote JSON URL**: `https://pins.example.com/pins.json` (or `/api/v1/pins.json`).
-     - *Local LAN testing only:* if you are testing without TLS on a trusted local network, toggle **Allow HTTP (LAN testing)** and use an `http://...` URL.
-   - Under **Authentication**, select **Bearer Token** (or **API Key Header** with `X-API-Key`) and paste your **`PIN_SERVER_READ_TOKEN`**. Credentials are encrypted on-device with Android Keystore and excluded from Android Auto Backup.
-   - Keep **Enable Sync** turned on and choose a **Background Polling Interval** (`Manual only`, `15 min`, `30 min`, `1 hour`, `3 hours`, `6 hours`, `12 hours`, or `24 hours`).
-   - Tap **Test Connection** to confirm the app receives HTTP 200 and valid `schemaVersion: 1` pins, then tap **Save**.
+2. **Pair your server in the Android app (QR code or manual setup):**
+   - **Instant QR code pairing (recommended):** Temporarily set `PIN_SERVER_REGISTRATION_MODE=true` (and optionally `PIN_SERVER_PUBLIC_URL=https://pins.example.com` and `PIN_SERVER_NAME="Home Pin Server"`), restart the server, and open `https://pins.example.com/register` in a browser. In **Pin Manager for Pebble**, open the **Feeds** tab, tap **Scan QR**, and point your camera at the QR code to pair and run an initial sync automatically. Once paired, set `PIN_SERVER_REGISTRATION_MODE=false` and restart the server.
+   - **Manual setup:** Open the **Feeds** tab, tap **Add Feed** (or `+`), enter your **Remote JSON URL** (`https://pins.example.com/pins.json`), select **Bearer Token** (or **API Key Header** with `X-API-Key`), paste your **`PIN_SERVER_READ_TOKEN`**, choose a **Background Polling Interval**, tap **Test Connection**, and tap **Save**.
+     - *Local LAN testing only:* if you are testing without TLS on a trusted local network, toggle **Allow HTTP (LAN testing)** and use an `http://...` URL (HTTP QR codes also prompt for explicit confirmation before saving).
+     - Credentials are encrypted on-device with Android Keystore and excluded from Android Auto Backup.
 3. **Sync pins to the watch timeline:**
    - Tap **Sync Now** on the feed card (or wait for the next `WorkManager` background poll).
    - The app polls with `ETag` / `If-None-Match` (`304 Not Modified` when nothing changed) and reconciles pins onto your paired watch: new pin IDs are inserted, modified pins are updated in place, and pins deleted or expired on the server are removed from the watch timeline (manual pins and Auto-Pins are never affected).
