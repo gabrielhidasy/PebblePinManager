@@ -143,6 +143,7 @@ curl -sf "$BASE_URL/pins.json" \
   -H "Authorization: Bearer $READ_TOKEN"
 ```
 
+- **Built-in Web UI (`/`):** Open `https://pins.example.com/` in a browser to add, edit, and delete pins interactively, view/scan your pairing QR code, and retrieve or rotate your per-user API tokens. Supports both standalone write-token sign-in and reverse-proxy SSO (e.g. Authelia `PIN_SERVER_AUTH_PROXY_HEADER=Remote-User`) with automatic per-user provisioning.
 - **Required fields:** `title` (1–128 chars) and `startTime` (RFC3339/ISO-8601 timestamp with timezone, within 2 days in the past to 365 days in the future).
 - **Optional fields:** `id` (auto-generated on `POST`), `description` (up to 512 chars), `durationMinutes` (`1`–`1440`), `iconUri` (`system://images/<ICON_NAME>`), `backgroundColor` / `primaryColor` / `secondaryColor` (`#RRGGBB`), and `layoutType` (`GENERIC_PIN`, `CALENDAR_PIN`, `GENERIC_REMINDER`, `GENERIC_NOTIFICATION`).
 - See [server/README.md](server/README.md) and [REMOTE_PIN_FEED_SCHEMA.md](REMOTE_PIN_FEED_SCHEMA.md) for the full API reference and JSON feed schema.

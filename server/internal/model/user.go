@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	MaxUserIDLength   = 64
-	MaxUserNameLength = 80
+	MaxUserIDLength          = 64
+	MaxUserNameLength        = 80
+	MaxExternalSubjectLength = 128
 )
 
 var (
@@ -24,6 +25,7 @@ var (
 		"pins.json": {},
 		"register":  {},
 		"static":    {},
+		"ui":        {},
 		"users":     {},
 	}
 )
@@ -109,4 +111,34 @@ func ValidateUserName(name string) (string, *ValidationError) {
 		}
 	}
 	return trimmed, nil
+}
+
+// ValidateExternalSubject trims, validates, and normalizes an external proxy identity
+// (such as Authelia's Remote-User header) for mapping to a persistent multi-user feed.
+func ValidateExternalSubject(subject string) (string, *ValidationError) {
+	trimmed := strings.TrimSpace(subject)
+	if trimmed == "" {
+		return "", &ValidationError{
+			Field:   "subject",
+			Code:    "subject_blank",
+			Message: "External identity subject must not be blank.",
+		}
+	}
+	if n := utf8.RuneCountInString(trimmed); n > MaxExternalSubjectLength {
+		return "", &ValidationError{
+			Field:   "subject",
+			Code:    "subject_too_long",
+			Message: fmt.Sprintf("External identity subject is too long (%d/%d characters).", n, MaxExternalSubjectLength),
+		}
+	}
+	for _, r := range trimmed {
+		if r < 0x20 || r == 0x7f {
+			return "", &ValidationError{
+				Field:   "subject",
+				Code:    "subject_invalid",
+				Message: "External identity subject must not contain control characters.",
+			}
+		}
+	}
+	return strings.ToLower(trimmed), nil
 }

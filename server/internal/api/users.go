@@ -192,6 +192,9 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, http.StatusInternalServerError, "internal_error", "Failed to delete user.")
 		return
 	}
+	if s.sessions != nil {
+		s.sessions.InvalidateUser(userID)
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

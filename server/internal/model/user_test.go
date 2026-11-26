@@ -69,6 +69,7 @@ func TestValidateUserID(t *testing.T) {
 		{"api", "user_id_reserved"},
 		{"register", "user_id_reserved"},
 		{"healthz", "user_id_reserved"},
+		{"ui", "user_id_reserved"},
 		{"users", "user_id_reserved"},
 	}
 	for _, tc := range invalid {
@@ -102,5 +103,25 @@ func TestValidateUserName(t *testing.T) {
 	}
 	if _, err := ValidateUserName("bad\nname"); err == nil || err.Code != "user_name_invalid" {
 		t.Errorf("expected user_name_invalid, got %+v", err)
+	}
+}
+
+func TestValidateExternalSubject(t *testing.T) {
+	got, err := ValidateExternalSubject("  Gabriel.Hidasy@Example.COM  ")
+	if err != nil {
+		t.Fatalf("ValidateExternalSubject valid: %+v", err)
+	}
+	if got != "gabriel.hidasy@example.com" {
+		t.Errorf("got %q, want %q", got, "gabriel.hidasy@example.com")
+	}
+
+	if _, err := ValidateExternalSubject("   "); err == nil || err.Code != "subject_blank" {
+		t.Errorf("expected subject_blank, got %+v", err)
+	}
+	if _, err := ValidateExternalSubject(strings.Repeat("a", MaxExternalSubjectLength+1)); err == nil || err.Code != "subject_too_long" {
+		t.Errorf("expected subject_too_long, got %+v", err)
+	}
+	if _, err := ValidateExternalSubject("bad\x00user"); err == nil || err.Code != "subject_invalid" {
+		t.Errorf("expected subject_invalid, got %+v", err)
 	}
 }

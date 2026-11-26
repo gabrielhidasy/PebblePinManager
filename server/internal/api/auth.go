@@ -58,7 +58,14 @@ func (a *Authenticator) Authenticate(r *http.Request) Role {
 	if !ok {
 		return RoleNone
 	}
+	return a.AuthenticateRaw(token)
+}
 
+// AuthenticateRaw verifies a raw token string against the configured global write/read tokens in constant time.
+func (a *Authenticator) AuthenticateRaw(token string) Role {
+	if token == "" {
+		return RoleNone
+	}
 	presented := sha256.Sum256([]byte(token))
 
 	// Always compare both digests without short-circuiting to avoid timing differences.

@@ -54,7 +54,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	userMgr, err := store.NewUserManager(cfg.DataDir, cfg.Retention, store.WithMaxUsers(cfg.MaxUsers))
+	userMgr, err := store.NewUserManager(
+		cfg.DataDir,
+		cfg.Retention,
+		store.WithMaxUsers(cfg.MaxUsers),
+		store.WithTokenEncryptionKey(cfg.TokenEncryptionKey),
+	)
 	if err != nil {
 		logger.Error("failed to initialize user manager", "err", err)
 		os.Exit(1)
@@ -67,6 +72,13 @@ func main() {
 		api.WithUserManager(userMgr),
 		api.WithPublicURL(cfg.PublicURL),
 		api.WithServerName(cfg.ServerName),
+	}
+	if cfg.WebUIEnabled {
+		opts = append(opts, api.WithWebUI(api.WebUIConfig{
+			Enabled:             true,
+			AuthProxyHeader:     cfg.AuthProxyHeader,
+			AuthProxyNameHeader: cfg.AuthProxyNameHeader,
+		}))
 	}
 	if cfg.RegistrationMode {
 		logger.Warn(

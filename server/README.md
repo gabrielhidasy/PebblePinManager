@@ -4,7 +4,8 @@ A lightweight, zero-dependency Go HTTP server that stores Pebble Timeline pins d
 
 ## Features
 
-- **Multi-User Isolation (`/{userId}/pins.json`)**: Each registered user receives a cryptographically random 32-char hex `userId`, an isolated pin feed (`GET /{userId}/pins.json`), isolated per-user CRUD endpoints (`/api/v1/users/{userId}/pins`), and dedicated per-user **read-only** and **read-write** tokens (stored on disk only as SHA-256 hashes).
+- **Built-in Hybrid Web UI (`/`)**: Self-contained, zero-dependency browser dashboard for creating, editing, and deleting pins (with local-timezone date/time picker, Pebble icons, and 64-color accent palette), viewing/scanning your pairing QR code, and retrieving or rotating API tokens for scripts. Supports both **standalone per-user write-token login** (`HttpOnly; SameSite=Strict` cookies + CSRF protection) and **reverse-proxy SSO** (e.g. Authelia `Remote-User` header) with automatic per-user provisioning.
+- **Multi-User Isolation (`/{userId}/pins.json`)**: Each registered user receives a cryptographically random 32-char hex `userId`, an isolated pin feed (`GET /{userId}/pins.json`), isolated per-user CRUD endpoints (`/api/v1/users/{userId}/pins`), and dedicated per-user **read-only** and **read-write** tokens (authenticated via SHA-256 hashes; sealed at rest with AES-256-GCM so authenticated Web UI sessions can display QR codes and retrieve/rotate tokens without storing plaintext on disk).
 - **Backward-Compatible Single-User Feed**: Legacy `GET /pins.json`, `GET /api/v1/pins.json`, and `/api/v1/pins` continue working seamlessly with global tokens.
 - **Cheap Polling**: Strong `ETag` / `If-None-Match` (`304 Not Modified`), `Last-Modified` / `If-Modified-Since`, and `HEAD` support on both per-user and legacy feeds.
 - **Scoped Token Authentication**: Constant-time SHA-256 token verification via `Authorization: Bearer <token>` or `X-API-Key: <token>`. Per-user tokens are strictly scoped to their own user ID (cross-user access returns `401` without leaking user existence); `PIN_SERVER_WRITE_TOKEN` also acts as an admin token for managing users. Raw tokens are never logged or stored in plaintext.
@@ -73,7 +74,11 @@ Unknown JSON fields are rejected with `400 Bad Request`.
 | `PIN_SERVER_DATA_DIR` | *(dir of `PIN_SERVER_DATA_FILE`)* | Directory storing multi-user registry (`users.json`) and per-user pin files (`users/<userId>/pins.json`). |
 | `PIN_SERVER_MAX_USERS` | `1000` | Maximum number of registered multi-user accounts (`0` disables limit). |
 | `PIN_SERVER_RETENTION` | `48h` | Go duration after a pin's end time before it expires from the feed. Set `0` to disable automatic expiration. |
-| `PIN_SERVER_TRUST_PROXY` | `false` | If `true`, record client IP from `X-Forwarded-For` / `X-Real-IP` in access logs and respect `X-Forwarded-Proto` / `X-Forwarded-Host` on `/register` and user API responses. |
+| `PIN_SERVER_TRUST_PROXY` | `false` | If `true`, record client IP from `X-Forwarded-For` / `X-Real-IP` in access logs and respect `X-Forwarded-Proto` / `X-Forwarded-Host` on `/register`, Web UI, and user API responses. |
+| `PIN_SERVER_WEB_UI` | `true` | Enable the self-contained Web UI at `/` (`false` disables HTML/UI routes for headless API-only deployments). |
+| `PIN_SERVER_AUTH_PROXY_HEADER` | — | Optional trusted reverse-proxy identity header (e.g. `Remote-User` for Authelia / Authentik). Requires `PIN_SERVER_TRUST_PROXY=true`. Automatically maps each authenticated proxy user to a persistent isolated `<userId>` in the Web UI. |
+| `PIN_SERVER_AUTH_PROXY_NAME_HEADER` | — | Optional reverse-proxy display name header (e.g. `Remote-Name`) used as the default feed label when auto-provisioning users via `PIN_SERVER_AUTH_PROXY_HEADER`. |
+| `PIN_SERVER_TOKEN_ENCRYPTION_KEY` | — | Optional secret used to derive the AES-256-GCM key for sealing per-user tokens at rest (alias: `PIN_SERVER_TOKEN_ENCRYPTION_KEY_FILE`). When unset, a random 32-byte key is generated and persisted in `<dataDir>/.token-seal.key` (`0600`). |
 | `PIN_SERVER_LOG_LEVEL` | `info` | Structured JSON log level: `debug`, `info`, `warn`, or `error`. |
 | `PIN_SERVER_REGISTRATION_MODE` | `false` | When `true`, enables `GET`/`POST /register` to create new users with random IDs and pairing QR codes for `/{userId}/pins.json`. **Disable and restart after pairing.** |
 | `PIN_SERVER_PUBLIC_URL` | — | Optional public base URL (e.g. `https://pins.example.com`) encoded in `/register` QR codes and user API URLs. Auto-detected from the incoming request when unset. |
@@ -94,7 +99,12 @@ openssl rand -hex 32
 | Method & Path | Auth Role | Description |
 |---|---|---|
 | `GET` / `HEAD` `/healthz` | None | Liveness probe returning `{"status":"ok"}`. |
-| `GET` / `HEAD` `/register` | Registration Mode only | Renders the self-contained multi-user registration form (`404` when `PIN_SERVER_REGISTRATION_MODE=false`). |
+| `GET` / `HEAD` `/` | Web UI (`PIN_SERVER_WEB_UI=true`) | Self-contained Web UI dashboard for adding/editing/deleting pins, scanning your pairing QR code, and retrieving/rotating API tokens. Signs in automatically via `PIN_SERVER_AUTH_PROXY_HEADER` (e.g. Authelia `Remote-User`) or via standalone write-token login. |
+| `POST /ui/api/login`, `POST /ui/api/logout` | Web UI + CSRF | Standalone browser sign-in (accepts per-user write token or global admin write token) and sign-out (`HttpOnly; SameSite=Strict` session cookie). |
+| `GET /ui/api/session`, `PUT /ui/api/profile` | Web UI Session or Auth Proxy | Fetch current Web UI session metadata & pairing QR code; update friendly feed display name. |
+| `POST /ui/api/tokens/reveal`, `POST /ui/api/tokens/rotate` | Web UI Session or Auth Proxy + CSRF | Retrieve the authenticated user's read/write API tokens or rotate read and/or write tokens on demand. |
+| `GET` / `POST` / `PUT` / `DELETE` `/ui/api/pins[/{id}]` | Web UI Session or Auth Proxy (+ CSRF on writes) | Browser CRUD endpoints scoped strictly to the signed-in user's pin store. |
+| `GET` / `HEAD` `/register` | Registration Mode only | Renders the self-contained multi-user registration form (`404` when `PIN_SERVER_REGISTRATION_MODE=false`; redirects to `/#pair` when authenticated via `PIN_SERVER_AUTH_PROXY_HEADER`). |
 | `POST /register` | Registration Mode only | Creates a new user with a random `userId` and scoped read/write tokens. Returns HTML with an inline SVG QR code (`pebblepin://pair?...` pointing to `/{userId}/pins.json`) for browser forms, or `201 Created` JSON when `Content-Type`/`Accept` is `application/json`. |
 | `GET` / `HEAD` `/{userId}/pins.json` | User Read/Write or Admin | Authenticated per-user JSON pin feed with `ETag`, `Last-Modified`, `If-None-Match` (`304`), and `If-Modified-Since` (`304`). |
 | `GET` / `HEAD` `/api/v1/users/{userId}/pins.json` | User Read/Write or Admin | Alias for `/{userId}/pins.json`. |
@@ -221,7 +231,9 @@ pins.example.com {
 }
 ```
 
-#### Nginx / SWAG
+#### Nginx / SWAG (with Authelia Multi-User Web UI)
+
+To let Authelia handle browser authentication for the Web UI (`/`) while keeping mobile feeds (`/{userId}/pins.json`) and script APIs (`/api/v1/*`) directly token-authenticated, set `PIN_SERVER_TRUST_PROXY=true`, `PIN_SERVER_AUTH_PROXY_HEADER=Remote-User`, and `PIN_SERVER_AUTH_PROXY_NAME_HEADER=Remote-Name`, then split the proxy locations:
 
 ```nginx
 server {
@@ -229,14 +241,32 @@ server {
     server_name pins.example.com;
 
     # ssl_certificate / ssl_certificate_key configured by certbot or SWAG
+    include /config/nginx/authelia-server.conf;
 
-    location / {
+    # Direct token-authenticated feed & CRUD endpoints (no Authelia redirect)
+    location ~ ^/(healthz|pins\.json|api/v1/|[a-z0-9][a-z0-9_-]*/pins\.json)$ {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Remote-User "";
+        proxy_set_header Remote-Name "";
+        proxy_set_header Cookie "";
+    }
+
+    # Browser Web UI & registration (Authelia SSO -> Remote-User auto-provisioning)
+    location / {
+        include /config/nginx/authelia-location.conf;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Remote-User $user;
+        proxy_set_header Remote-Name $name;
     }
 }
 ```

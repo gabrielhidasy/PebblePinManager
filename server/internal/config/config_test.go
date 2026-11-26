@@ -47,6 +47,12 @@ func TestLoadFromEnv_DefaultsAndSingleToken(t *testing.T) {
 	if cfg.RegistrationMode {
 		t.Errorf("RegistrationMode = true, want false by default")
 	}
+	if !cfg.WebUIEnabled {
+		t.Errorf("WebUIEnabled = false, want true by default")
+	}
+	if cfg.AuthProxyHeader != "" || cfg.AuthProxyNameHeader != "" {
+		t.Errorf("expected empty auth proxy headers by default, got %q / %q", cfg.AuthProxyHeader, cfg.AuthProxyNameHeader)
+	}
 	if tok, scope := cfg.PairingToken(); tok != "super-secret-write-token" || scope != "write" {
 		t.Errorf("PairingToken() = (%q, %q), want write token fallback", tok, scope)
 	}
@@ -227,6 +233,44 @@ func TestLoadFromEnv_Errors(t *testing.T) {
 				"PIN_SERVER_MAX_USERS": "-1",
 			},
 		},
+		{
+			name: "invalid web ui bool",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":  "secret",
+				"PIN_SERVER_WEB_UI": "sometimes",
+			},
+		},
+		{
+			name: "auth proxy header without trust proxy",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":             "secret",
+				"PIN_SERVER_AUTH_PROXY_HEADER": "Remote-User",
+			},
+		},
+		{
+			name: "invalid auth proxy header name",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":             "secret",
+				"PIN_SERVER_TRUST_PROXY":       "true",
+				"PIN_SERVER_AUTH_PROXY_HEADER": "Bad Header: Value",
+			},
+		},
+		{
+			name: "auth proxy name header without auth proxy header",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":                  "secret",
+				"PIN_SERVER_TRUST_PROXY":            "true",
+				"PIN_SERVER_AUTH_PROXY_NAME_HEADER": "Remote-Name",
+			},
+		},
+		{
+			name: "both direct and file token encryption key",
+			env: map[string]string{
+				"PIN_SERVER_TOKEN":                     "secret",
+				"PIN_SERVER_TOKEN_ENCRYPTION_KEY":      "abc",
+				"PIN_SERVER_TOKEN_ENCRYPTION_KEY_FILE": "/nonexistent",
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -235,5 +279,35 @@ func TestLoadFromEnv_Errors(t *testing.T) {
 				t.Fatalf("expected error for case %q, got nil", tc.name)
 			}
 		})
+	}
+}
+
+func TestLoadFromEnv_WebUIAuthProxyAndTokenEncryptionKey(t *testing.T) {
+	cfg, err := LoadFromEnv(mapEnv(map[string]string{
+		"PIN_SERVER_TOKEN":                  "secret-write",
+		"PIN_SERVER_TRUST_PROXY":            "true",
+		"PIN_SERVER_WEB_UI":                 "false",
+		"PIN_SERVER_AUTH_PROXY_HEADER":      "Remote-User",
+		"PIN_SERVER_AUTH_PROXY_NAME_HEADER": "Remote-Name",
+		"PIN_SERVER_TOKEN_ENCRYPTION_KEY":   "super-secret-seal-key",
+	}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.WebUIEnabled {
+		t.Errorf("WebUIEnabled = true, want false")
+	}
+	if cfg.AuthProxyHeader != "Remote-User" {
+		t.Errorf("AuthProxyHeader = %q, want Remote-User", cfg.AuthProxyHeader)
+	}
+	if cfg.AuthProxyNameHeader != "Remote-Name" {
+		t.Errorf("AuthProxyNameHeader = %q, want Remote-Name", cfg.AuthProxyNameHeader)
+	}
+	if cfg.TokenEncryptionKey != "super-secret-seal-key" {
+		t.Errorf("TokenEncryptionKey mismatch")
+	}
+	summary := fmt.Sprint(cfg.RedactedSummary()...)
+	if strings.Contains(summary, "super-secret-seal-key") {
+		t.Fatalf("RedactedSummary leaked token encryption key: %s", summary)
 	}
 }

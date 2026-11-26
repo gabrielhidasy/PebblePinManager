@@ -85,6 +85,8 @@ type Server struct {
 	publicURL    string
 	serverName   string
 	registration RegistrationConfig
+	webUI        WebUIConfig
+	sessions     *uiSessionStore
 	now          func() time.Time
 	mux          *http.ServeMux
 }
@@ -101,6 +103,7 @@ func NewServer(st *store.Store, auth *Authenticator, opts ...ServerOption) *Serv
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.sessions = newUISessionStore(s.now)
 
 	s.registerRoutes()
 	return s
@@ -109,6 +112,10 @@ func NewServer(st *store.Store, auth *Authenticator, opts ...ServerOption) *Serv
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("HEAD /healthz", s.handleHealthz)
+
+	if s.webUI.Enabled {
+		s.registerWebUIRoutes()
+	}
 
 	if s.registration.Enabled {
 		s.mux.HandleFunc("GET /register", s.handleRegisterGet)

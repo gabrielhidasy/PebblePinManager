@@ -155,3 +155,166 @@ func TestUserManager_CorruptUsersFileFailsFast(t *testing.T) {
 		t.Fatalf("expected error loading corrupt users.json")
 	}
 }
+
+func TestUserManager_SubjectProvisioningRevealRotateAndTokenLookup(t *testing.T) {
+	dataDir := t.TempDir()
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+
+	mgr, err := NewUserManager(dataDir, 48*time.Hour, WithUserClock(clock))
+	if err != nil {
+		t.Fatalf("NewUserManager: %v", err)
+	}
+
+	// Provision by external subject (Authelia Remote-User).
+	u1, created, err := mgr.GetOrCreateUserBySubject("Gabriel", "Gabriel Hidasy")
+	if err != nil {
+		t.Fatalf("GetOrCreateUserBySubject: %v", err)
+	}
+	if !created {
+		t.Fatalf("expected created=true on first call")
+	}
+	if u1.ExternalSubject != "gabriel" || u1.Name != "Gabriel Hidasy" {
+		t.Fatalf("unexpected user summary: %+v", u1)
+	}
+
+	// Case-insensitive second call returns the same user idempotently.
+	u2, created, err := mgr.GetOrCreateUserBySubject("  GABRIEL  ", "Ignored Name")
+	if err != nil {
+		t.Fatalf("second GetOrCreateUserBySubject: %v", err)
+	}
+	if created || u2.ID != u1.ID {
+		t.Fatalf("expected idempotent match, got created=%v id=%q (want %q)", created, u2.ID, u1.ID)
+	}
+
+	// Reveal sealed tokens and verify authentication + lookup.
+	readTok, writeTok, avail, err := mgr.RevealTokens(u1.ID)
+	if err != nil || !avail || readTok == "" || writeTok == "" || readTok == writeTok {
+		t.Fatalf("RevealTokens = (%q, %q, %v, %v)", readTok, writeTok, avail, err)
+	}
+
+	// Verify plaintext tokens never appear in users.json.
+	rawUsers, err := os.ReadFile(filepath.Join(dataDir, "users.json"))
+	if err != nil {
+		t.Fatalf("read users.json: %v", err)
+	}
+	if strings.Contains(string(rawUsers), readTok) || strings.Contains(string(rawUsers), writeTok) {
+		t.Fatalf("plaintext token leaked into users.json")
+	}
+
+	// FindUserByWriteToken accepts write token, rejects read token and wrong tokens.
+	if found, ok := mgr.FindUserByWriteToken(sha256.Sum256([]byte(writeTok))); !ok || found.ID != u1.ID {
+		t.Fatalf("FindUserByWriteToken(writeTok) = (%+v, %v), want %q", found, ok, u1.ID)
+	}
+	if _, ok := mgr.FindUserByWriteToken(sha256.Sum256([]byte(readTok))); ok {
+		t.Fatalf("FindUserByWriteToken must reject read token")
+	}
+	if _, ok := mgr.FindUserByWriteToken(sha256.Sum256([]byte("wrong-token"))); ok {
+		t.Fatalf("FindUserByWriteToken must reject wrong token")
+	}
+
+	// Rotate write token only: read token remains unchanged, old write token stops working.
+	readAfterWriteRot, newWriteTok, err := mgr.RotateTokens(u1.ID, false, true)
+	if err != nil {
+		t.Fatalf("RotateTokens write: %v", err)
+	}
+	if readAfterWriteRot != readTok {
+		t.Fatalf("read token changed during write-only rotation")
+	}
+	if newWriteTok == writeTok || newWriteTok == "" {
+		t.Fatalf("expected new write token after rotation")
+	}
+	if mw, _, _ := mgr.AuthenticateUser(u1.ID, sha256.Sum256([]byte(writeTok))); mw {
+		t.Fatalf("old write token still valid after rotation")
+	}
+	if mw, _, _ := mgr.AuthenticateUser(u1.ID, sha256.Sum256([]byte(newWriteTok))); !mw {
+		t.Fatalf("new write token rejected after rotation")
+	}
+
+	// Rotate read token only: write token remains unchanged, old read token stops working.
+	newReadTok, writeAfterReadRot, err := mgr.RotateTokens(u1.ID, true, false)
+	if err != nil {
+		t.Fatalf("RotateTokens read: %v", err)
+	}
+	if writeAfterReadRot != newWriteTok {
+		t.Fatalf("write token changed during read-only rotation")
+	}
+	if newReadTok == readTok || newReadTok == "" {
+		t.Fatalf("expected new read token after rotation")
+	}
+	if _, mr, _ := mgr.AuthenticateUser(u1.ID, sha256.Sum256([]byte(readTok))); mr {
+		t.Fatalf("old read token still valid after rotation")
+	}
+
+	// Update display name.
+	updated, err := mgr.UpdateUserName(u1.ID, "My Pebble Time 2")
+	if err != nil || updated.Name != "My Pebble Time 2" {
+		t.Fatalf("UpdateUserName = (%+v, %v)", updated, err)
+	}
+
+	// Reload from disk and verify seal key + subject + revealed tokens persist.
+	reloaded, err := NewUserManager(dataDir, 48*time.Hour, WithUserClock(clock))
+	if err != nil {
+		t.Fatalf("reload UserManager: %v", err)
+	}
+	gotRead, gotWrite, gotAvail, err := reloaded.RevealTokens(u1.ID)
+	if err != nil || !gotAvail || gotRead != newReadTok || gotWrite != newWriteTok {
+		t.Fatalf("reloaded RevealTokens = (%q, %q, %v, %v)", gotRead, gotWrite, gotAvail, err)
+	}
+	u3, created3, err := reloaded.GetOrCreateUserBySubject("gabriel", "")
+	if err != nil || created3 || u3.ID != u1.ID || u3.Name != "My Pebble Time 2" {
+		t.Fatalf("reloaded subject lookup = (%+v, %v, %v)", u3, created3, err)
+	}
+}
+
+func TestUserManager_LegacyUnsealedUserCompatibilityAndRotation(t *testing.T) {
+	dataDir := t.TempDir()
+	readHash := sha256.Sum256([]byte("legacy-read-token"))
+	writeHash := sha256.Sum256([]byte("legacy-write-token"))
+
+	legacyJSON := `{
+  "schemaVersion": 1,
+  "users": [
+    {
+      "id": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "name": "Legacy User",
+      "createdAt": "2026-11-26T12:00:00Z",
+      "readTokenHash": "` + encodeHex(readHash[:]) + `",
+      "writeTokenHash": "` + encodeHex(writeHash[:]) + `"
+    }
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(dataDir, "users.json"), []byte(legacyJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr, err := NewUserManager(dataDir, 48*time.Hour, WithTokenEncryptionKey("explicit-test-key"))
+	if err != nil {
+		t.Fatalf("NewUserManager legacy: %v", err)
+	}
+
+	_, _, avail, err := mgr.RevealTokens("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+	if err != nil || avail {
+		t.Fatalf("legacy RevealTokens = (avail=%v, err=%v), want (false, nil)", avail, err)
+	}
+
+	newRead, newWrite, err := mgr.RotateTokens("a1b2c3d4e5f60718293a4b5c6d7e8f90", false, true)
+	if err != nil || newRead == "" || newWrite == "" {
+		t.Fatalf("legacy RotateTokens = (%q, %q, %v)", newRead, newWrite, err)
+	}
+
+	gotRead, gotWrite, avail, err := mgr.RevealTokens("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+	if err != nil || !avail || gotRead != newRead || gotWrite != newWrite {
+		t.Fatalf("post-rotate RevealTokens = (%q, %q, %v, %v)", gotRead, gotWrite, avail, err)
+	}
+}
+
+func encodeHex(b []byte) string {
+	const digits = "0123456789abcdef"
+	out := make([]byte, len(b)*2)
+	for i, v := range b {
+		out[i*2] = digits[v>>4]
+		out[i*2+1] = digits[v&0x0f]
+	}
+	return string(out)
+}

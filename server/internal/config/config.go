@@ -23,28 +23,33 @@ const (
 
 // Config holds runtime configuration for the companion pin server.
 type Config struct {
-	Addr             string
-	WriteToken       string
-	ReadToken        string
-	DataFile         string
-	DataDir          string
-	MaxUsers         int
-	Retention        time.Duration
-	TrustProxy       bool
-	LogLevel         slog.Level
-	RegistrationMode bool
-	PublicURL        string
-	ServerName       string
+	Addr                string
+	WriteToken          string
+	ReadToken           string
+	TokenEncryptionKey  string
+	DataFile            string
+	DataDir             string
+	MaxUsers            int
+	Retention           time.Duration
+	TrustProxy          bool
+	AuthProxyHeader     string
+	AuthProxyNameHeader string
+	WebUIEnabled        bool
+	LogLevel            slog.Level
+	RegistrationMode    bool
+	PublicURL           string
+	ServerName          string
 }
 
 // LoadFromEnv loads and validates Config using the provided environment lookup function.
 func LoadFromEnv(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		Addr:      DefaultAddr,
-		DataFile:  DefaultDataFile,
-		MaxUsers:  DefaultMaxUsers,
-		Retention: DefaultRetention,
-		LogLevel:  slog.LevelInfo,
+		Addr:         DefaultAddr,
+		DataFile:     DefaultDataFile,
+		MaxUsers:     DefaultMaxUsers,
+		Retention:    DefaultRetention,
+		WebUIEnabled: true,
+		LogLevel:     slog.LevelInfo,
 	}
 
 	if v := strings.TrimSpace(getenv("PIN_SERVER_ADDR")); v != "" {
@@ -89,6 +94,34 @@ func LoadFromEnv(getenv func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("invalid PIN_SERVER_TRUST_PROXY %q: %w", v, err)
 		}
 		cfg.TrustProxy = b
+	}
+
+	if v := strings.TrimSpace(getenv("PIN_SERVER_WEB_UI")); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid PIN_SERVER_WEB_UI %q: %w", v, err)
+		}
+		cfg.WebUIEnabled = b
+	}
+
+	if v := strings.TrimSpace(getenv("PIN_SERVER_AUTH_PROXY_HEADER")); v != "" {
+		if !cfg.TrustProxy {
+			return Config{}, errors.New("PIN_SERVER_AUTH_PROXY_HEADER requires PIN_SERVER_TRUST_PROXY=true")
+		}
+		if !isValidHeaderName(v) {
+			return Config{}, fmt.Errorf("invalid PIN_SERVER_AUTH_PROXY_HEADER %q: must be a valid HTTP header name", v)
+		}
+		cfg.AuthProxyHeader = v
+	}
+
+	if v := strings.TrimSpace(getenv("PIN_SERVER_AUTH_PROXY_NAME_HEADER")); v != "" {
+		if cfg.AuthProxyHeader == "" {
+			return Config{}, errors.New("PIN_SERVER_AUTH_PROXY_NAME_HEADER requires PIN_SERVER_AUTH_PROXY_HEADER")
+		}
+		if !isValidHeaderName(v) {
+			return Config{}, fmt.Errorf("invalid PIN_SERVER_AUTH_PROXY_NAME_HEADER %q: must be a valid HTTP header name", v)
+		}
+		cfg.AuthProxyNameHeader = v
 	}
 
 	if v := strings.TrimSpace(getenv("PIN_SERVER_LOG_LEVEL")); v != "" {
@@ -144,6 +177,12 @@ func LoadFromEnv(getenv func(string) string) (Config, error) {
 	}
 	cfg.ReadToken = readToken
 
+	tokenEncKey, err := loadSecret(getenv, "PIN_SERVER_TOKEN_ENCRYPTION_KEY", "PIN_SERVER_TOKEN_ENCRYPTION_KEY_FILE")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.TokenEncryptionKey = tokenEncKey
+
 	if cfg.WriteToken == "" && cfg.ReadToken == "" {
 		return Config{}, errors.New("authentication is required: configure PIN_SERVER_WRITE_TOKEN (or PIN_SERVER_TOKEN) and/or PIN_SERVER_READ_TOKEN")
 	}
@@ -172,10 +211,13 @@ func (c Config) RedactedSummary() []any {
 		"maxUsers", c.MaxUsers,
 		"retention", c.Retention.String(),
 		"trustProxy", c.TrustProxy,
+		"webUiEnabled", c.WebUIEnabled,
+		"authProxyHeader", c.AuthProxyHeader,
 		"registrationMode", c.RegistrationMode,
 		"publicUrlConfigured", c.PublicURL != "",
 		"writeTokenConfigured", c.WriteToken != "",
 		"readTokenConfigured", c.ReadToken != "",
+		"tokenEncryptionKeyConfigured", c.TokenEncryptionKey != "",
 	}
 }
 
@@ -238,4 +280,19 @@ func parseLogLevel(raw string) (slog.Level, error) {
 	default:
 		return slog.LevelInfo, fmt.Errorf("invalid PIN_SERVER_LOG_LEVEL %q (expected debug, info, warn, or error)", raw)
 	}
+}
+
+func isValidHeaderName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		isAlpha := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+		isDigit := c >= '0' && c <= '9'
+		if !isAlpha && !isDigit && c != '-' && c != '_' {
+			return false
+		}
+	}
+	return true
 }

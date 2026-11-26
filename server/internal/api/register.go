@@ -75,6 +75,17 @@ func (s *Server) handleRegisterGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// When the Web UI is enabled and an authenticated reverse-proxy identity (e.g. Authelia
+	// Remote-User) is present, send the user straight to their persistent per-user dashboard
+	// and QR pairing card instead of creating duplicate anonymous users.
+	if s.webUI.Enabled {
+		if _, _, ok := s.extractProxyIdentity(r); ok {
+			w.Header().Set("Cache-Control", "no-store, max-age=0")
+			http.Redirect(w, r, "/#pair", http.StatusSeeOther)
+			return
+		}
+	}
+
 	baseURL, hostName := s.resolveBaseURL(r)
 	data := registerFormPageData{
 		ServerName:  s.effectiveServerName(),
@@ -172,6 +183,7 @@ func (s *Server) handleRegisterPost(w http.ResponseWriter, r *http.Request) {
 
 	data := registerPageData{
 		MultiUser:    true,
+		WebUIEnabled: s.webUI.Enabled,
 		UserID:       created.User.ID,
 		ServerName:   displayName,
 		FeedURL:      resp.FeedURL,
@@ -327,6 +339,7 @@ type registerFormPageData struct {
 
 type registerPageData struct {
 	MultiUser    bool
+	WebUIEnabled bool
 	UserID       string
 	ServerName   string
 	FeedURL      string
@@ -600,6 +613,7 @@ var registerPageTemplate = template.Must(template.New("register").Parse(`<!DOCTY
 
     <div class="cta-row">
       <a class="cta-btn" href="{{.PairingHref}}">Open in Pin Manager for Pebble</a>
+      {{if and .MultiUser .WebUIEnabled}}<a class="cta-btn cta-btn-secondary" href="/">Open Web UI</a>{{end}}
       {{if .MultiUser}}<a class="cta-btn cta-btn-secondary" href="/register">Register Another User</a>{{end}}
     </div>
 

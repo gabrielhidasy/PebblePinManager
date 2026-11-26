@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,20 +25,26 @@ var (
 )
 
 // UserRecord is the durable representation of a registered user persisted in users.json.
-// Only SHA-256 token hashes are stored; raw tokens are never written to disk.
+// Authentication uses SHA-256 token hashes; optional AES-256-GCM sealed tokens allow
+// authenticated Web UI sessions to display QR codes and retrieve/copy API tokens.
+// Raw plaintext tokens are never written to users.json.
 type UserRecord struct {
-	ID             string `json:"id"`
-	Name           string `json:"name,omitempty"`
-	CreatedAt      string `json:"createdAt"`
-	ReadTokenHash  string `json:"readTokenHash"`
-	WriteTokenHash string `json:"writeTokenHash"`
+	ID               string `json:"id"`
+	Name             string `json:"name,omitempty"`
+	ExternalSubject  string `json:"externalSubject,omitempty"`
+	CreatedAt        string `json:"createdAt"`
+	ReadTokenHash    string `json:"readTokenHash"`
+	WriteTokenHash   string `json:"writeTokenHash"`
+	ReadTokenSealed  string `json:"readTokenSealed,omitempty"`
+	WriteTokenSealed string `json:"writeTokenSealed,omitempty"`
 }
 
-// UserSummary is the public/admin metadata view of a user without any token hashes.
+// UserSummary is the public/admin metadata view of a user without any token hashes or ciphertexts.
 type UserSummary struct {
-	ID        string `json:"id"`
-	Name      string `json:"name,omitempty"`
-	CreatedAt string `json:"createdAt"`
+	ID              string `json:"id"`
+	Name            string `json:"name,omitempty"`
+	ExternalSubject string `json:"externalSubject,omitempty"`
+	CreatedAt       string `json:"createdAt"`
 }
 
 // CreatedUser contains the newly created user metadata and one-time plaintext read/write tokens.
@@ -79,15 +86,31 @@ func WithMaxUsers(limit int) UserManagerOption {
 	}
 }
 
+// WithTokenEncryptionKey configures an explicit secret used to derive the AES-256-GCM key
+// that seals per-user tokens at rest. When unset, UserManager persists a random 32-byte key
+// in <dataDir>/.token-seal.key (mode 0600).
+func WithTokenEncryptionKey(secret string) UserManagerOption {
+	return func(m *UserManager) {
+		if secret != "" {
+			m.sealKey = deriveSealKeyFromSecret(secret)
+			m.hasSealKey = true
+			m.explicitSealKey = true
+		}
+	}
+}
+
 // UserManager persists registered users in <dataDir>/users.json and isolates each user's
 // Timeline pins in <dataDir>/users/<userId>/pins.json.
 type UserManager struct {
-	mu        sync.RWMutex
-	dataDir   string
-	usersFile string
-	retention time.Duration
-	maxUsers  int
-	now       func() time.Time
+	mu              sync.RWMutex
+	dataDir         string
+	usersFile       string
+	retention       time.Duration
+	maxUsers        int
+	now             func() time.Time
+	sealKey         [32]byte
+	hasSealKey      bool
+	explicitSealKey bool
 
 	users  map[string]userEntry
 	stores map[string]*Store
@@ -114,10 +137,34 @@ func NewUserManager(dataDir string, retention time.Duration, opts ...UserManager
 		opt(m)
 	}
 
+	if !m.explicitSealKey {
+		key, ok, err := loadSealKeyFile(sealKeyPath(dataDir))
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			m.sealKey = key
+			m.hasSealKey = true
+		}
+	}
+
 	if err := m.load(); err != nil {
 		return nil, err
 	}
 	return m, nil
+}
+
+func (m *UserManager) ensureSealKeyLocked() ([32]byte, error) {
+	if m.hasSealKey {
+		return m.sealKey, nil
+	}
+	key, err := createSealKeyFile(m.dataDir, sealKeyPath(m.dataDir))
+	if err != nil {
+		return [32]byte{}, err
+	}
+	m.sealKey = key
+	m.hasSealKey = true
+	return key, nil
 }
 
 func (m *UserManager) load() error {
@@ -137,12 +184,24 @@ func (m *UserManager) load() error {
 		return fmt.Errorf("unsupported users schemaVersion %d in %s (expected %d)", doc.SchemaVersion, m.usersFile, usersSchemaVersion)
 	}
 
+	seenSubjects := make(map[string]struct{})
 	for _, rec := range doc.Users {
 		if valErr := model.ValidateUserID(rec.ID); valErr != nil {
 			return fmt.Errorf("invalid user id %q in %s: %s", rec.ID, m.usersFile, valErr.Message)
 		}
 		if _, dup := m.users[rec.ID]; dup {
 			return fmt.Errorf("duplicate user id %q in %s", rec.ID, m.usersFile)
+		}
+		if rec.ExternalSubject != "" {
+			normSub, valErr := model.ValidateExternalSubject(rec.ExternalSubject)
+			if valErr != nil {
+				return fmt.Errorf("invalid externalSubject for user %q in %s: %s", rec.ID, m.usersFile, valErr.Message)
+			}
+			if _, dup := seenSubjects[normSub]; dup {
+				return fmt.Errorf("duplicate externalSubject %q in %s", normSub, m.usersFile)
+			}
+			seenSubjects[normSub] = struct{}{}
+			rec.ExternalSubject = normSub
 		}
 		readDigest, err := decodeSHA256Hex(rec.ReadTokenHash)
 		if err != nil {
@@ -171,8 +230,54 @@ func (m *UserManager) CreateUser(name string) (CreatedUser, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	return m.createUserLocked(cleanName, "")
+}
+
+// GetOrCreateUserBySubject returns the existing user linked to externalSubject (case-insensitive)
+// or atomically provisions a new isolated user account when first seen.
+func (m *UserManager) GetOrCreateUserBySubject(subject, displayName string) (UserSummary, bool, error) {
+	normSubject, valErr := model.ValidateExternalSubject(subject)
+	if valErr != nil {
+		return UserSummary{}, false, model.ValidationErrors{*valErr}
+	}
+
+	cleanName, nameErr := model.ValidateUserName(displayName)
+	if nameErr != nil || cleanName == "" {
+		// Fall back cleanly to the trimmed subject (truncated to MaxUserNameLength if needed).
+		fallback := strings.TrimSpace(subject)
+		runes := []rune(fallback)
+		if len(runes) > model.MaxUserNameLength {
+			fallback = string(runes[:model.MaxUserNameLength])
+		}
+		if validFallback, err := model.ValidateUserName(fallback); err == nil {
+			cleanName = validFallback
+		}
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, entry := range m.users {
+		if entry.record.ExternalSubject == normSubject {
+			return summaryFromRecord(entry.record), false, nil
+		}
+	}
+
+	created, err := m.createUserLocked(cleanName, normSubject)
+	if err != nil {
+		return UserSummary{}, false, err
+	}
+	return created.User, true, nil
+}
+
+func (m *UserManager) createUserLocked(cleanName, externalSubject string) (CreatedUser, error) {
 	if m.maxUsers > 0 && len(m.users) >= m.maxUsers {
 		return CreatedUser{}, ErrUserLimitReached
+	}
+
+	sealKey, err := m.ensureSealKeyLocked()
+	if err != nil {
+		return CreatedUser{}, err
 	}
 
 	var userID string
@@ -199,15 +304,27 @@ func (m *UserManager) CreateUser(name string) (CreatedUser, error) {
 		return CreatedUser{}, err
 	}
 
+	readSealed, err := sealToken(sealKey, userID, "read", readToken)
+	if err != nil {
+		return CreatedUser{}, err
+	}
+	writeSealed, err := sealToken(sealKey, userID, "write", writeToken)
+	if err != nil {
+		return CreatedUser{}, err
+	}
+
 	readDigest := sha256.Sum256([]byte(readToken))
 	writeDigest := sha256.Sum256([]byte(writeToken))
 
 	rec := UserRecord{
-		ID:             userID,
-		Name:           cleanName,
-		CreatedAt:      m.now().UTC().Format(time.RFC3339),
-		ReadTokenHash:  hex.EncodeToString(readDigest[:]),
-		WriteTokenHash: hex.EncodeToString(writeDigest[:]),
+		ID:               userID,
+		Name:             cleanName,
+		ExternalSubject:  externalSubject,
+		CreatedAt:        m.now().UTC().Format(time.RFC3339),
+		ReadTokenHash:    hex.EncodeToString(readDigest[:]),
+		WriteTokenHash:   hex.EncodeToString(writeDigest[:]),
+		ReadTokenSealed:  readSealed,
+		WriteTokenSealed: writeSealed,
 	}
 
 	next := make(map[string]userEntry, len(m.users)+1)
@@ -226,14 +343,190 @@ func (m *UserManager) CreateUser(name string) (CreatedUser, error) {
 	m.users = next
 
 	return CreatedUser{
-		User: UserSummary{
-			ID:        rec.ID,
-			Name:      rec.Name,
-			CreatedAt: rec.CreatedAt,
-		},
+		User:       summaryFromRecord(rec),
 		ReadToken:  readToken,
 		WriteToken: writeToken,
 	}, nil
+}
+
+// RevealTokens decrypts the stored sealed read and write tokens for userID.
+// For legacy user records created before token sealing, available is false and err is nil.
+func (m *UserManager) RevealTokens(userID string) (readToken string, writeToken string, available bool, err error) {
+	m.mu.RLock()
+	entry, ok := m.users[userID]
+	hasKey := m.hasSealKey
+	key := m.sealKey
+	m.mu.RUnlock()
+
+	if !ok {
+		return "", "", false, ErrUserNotFound
+	}
+	if entry.record.ReadTokenSealed == "" || entry.record.WriteTokenSealed == "" || !hasKey {
+		return "", "", false, nil
+	}
+
+	readToken, err = openToken(key, userID, "read", entry.record.ReadTokenSealed)
+	if err != nil {
+		return "", "", false, fmt.Errorf("reveal read token: %w", err)
+	}
+	writeToken, err = openToken(key, userID, "write", entry.record.WriteTokenSealed)
+	if err != nil {
+		return "", "", false, fmt.Errorf("reveal write token: %w", err)
+	}
+	return readToken, writeToken, true, nil
+}
+
+// RotateTokens generates new read and/or write tokens for userID, updates their hashes and
+// sealed ciphertexts atomically, and returns the resulting active (readToken, writeToken) pair.
+// If a token was not previously sealed (legacy record), it is also regenerated so both tokens
+// are recoverable from the authenticated UI.
+func (m *UserManager) RotateTokens(userID string, rotateRead, rotateWrite bool) (readToken string, writeToken string, err error) {
+	if !rotateRead && !rotateWrite {
+		return "", "", errors.New("at least one of rotateRead or rotateWrite must be true")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	entry, ok := m.users[userID]
+	if !ok {
+		return "", "", ErrUserNotFound
+	}
+
+	sealKey, err := m.ensureSealKeyLocked()
+	if err != nil {
+		return "", "", err
+	}
+
+	rec := entry.record
+	readDigest := entry.readDigest
+	writeDigest := entry.writeDigest
+
+	if !rotateRead && rec.ReadTokenSealed != "" {
+		existingRead, openErr := openToken(sealKey, userID, "read", rec.ReadTokenSealed)
+		if openErr == nil {
+			readToken = existingRead
+		} else {
+			rotateRead = true
+		}
+	} else {
+		rotateRead = true
+	}
+
+	if !rotateWrite && rec.WriteTokenSealed != "" {
+		existingWrite, openErr := openToken(sealKey, userID, "write", rec.WriteTokenSealed)
+		if openErr == nil {
+			writeToken = existingWrite
+		} else {
+			rotateWrite = true
+		}
+	} else {
+		rotateWrite = true
+	}
+
+	if rotateRead {
+		readToken, err = model.GenerateToken()
+		if err != nil {
+			return "", "", err
+		}
+		readSealed, err := sealToken(sealKey, userID, "read", readToken)
+		if err != nil {
+			return "", "", err
+		}
+		readDigest = sha256.Sum256([]byte(readToken))
+		rec.ReadTokenHash = hex.EncodeToString(readDigest[:])
+		rec.ReadTokenSealed = readSealed
+	}
+
+	if rotateWrite {
+		writeToken, err = model.GenerateToken()
+		if err != nil {
+			return "", "", err
+		}
+		writeSealed, err := sealToken(sealKey, userID, "write", writeToken)
+		if err != nil {
+			return "", "", err
+		}
+		writeDigest = sha256.Sum256([]byte(writeToken))
+		rec.WriteTokenHash = hex.EncodeToString(writeDigest[:])
+		rec.WriteTokenSealed = writeSealed
+	}
+
+	next := make(map[string]userEntry, len(m.users))
+	for k, v := range m.users {
+		next[k] = v
+	}
+	next[userID] = userEntry{
+		record:      rec,
+		readDigest:  readDigest,
+		writeDigest: writeDigest,
+	}
+
+	if err := m.persistLocked(next); err != nil {
+		return "", "", err
+	}
+	m.users = next
+	return readToken, writeToken, nil
+}
+
+// UpdateUserName updates the friendly display name for userID.
+func (m *UserManager) UpdateUserName(userID, name string) (UserSummary, error) {
+	cleanName, valErr := model.ValidateUserName(name)
+	if valErr != nil {
+		return UserSummary{}, model.ValidationErrors{*valErr}
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	entry, ok := m.users[userID]
+	if !ok {
+		return UserSummary{}, ErrUserNotFound
+	}
+	rec := entry.record
+	rec.Name = cleanName
+
+	next := make(map[string]userEntry, len(m.users))
+	for k, v := range m.users {
+		next[k] = v
+	}
+	next[userID] = userEntry{
+		record:      rec,
+		readDigest:  entry.readDigest,
+		writeDigest: entry.writeDigest,
+	}
+
+	if err := m.persistLocked(next); err != nil {
+		return UserSummary{}, err
+	}
+	m.users = next
+	return summaryFromRecord(rec), nil
+}
+
+// FindUserByWriteToken scans all registered users in constant time without short-circuiting
+// and returns the user matching tokenDigest's write token hash.
+func (m *UserManager) FindUserByWriteToken(tokenDigest [32]byte) (UserSummary, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var matched UserSummary
+	found := false
+	for _, entry := range m.users {
+		if subtle.ConstantTimeCompare(tokenDigest[:], entry.writeDigest[:]) == 1 {
+			matched = summaryFromRecord(entry.record)
+			found = true
+		}
+	}
+	return matched, found
+}
+
+func summaryFromRecord(rec UserRecord) UserSummary {
+	return UserSummary{
+		ID:              rec.ID,
+		Name:            rec.Name,
+		ExternalSubject: rec.ExternalSubject,
+		CreatedAt:       rec.CreatedAt,
+	}
 }
 
 // GetUser returns metadata for a registered user by ID.
@@ -245,11 +538,7 @@ func (m *UserManager) GetUser(userID string) (UserSummary, bool) {
 	if !ok {
 		return UserSummary{}, false
 	}
-	return UserSummary{
-		ID:        entry.record.ID,
-		Name:      entry.record.Name,
-		CreatedAt: entry.record.CreatedAt,
-	}, true
+	return summaryFromRecord(entry.record), true
 }
 
 // ListUsers returns all registered users in deterministic order without token hashes.
@@ -259,11 +548,7 @@ func (m *UserManager) ListUsers() []UserSummary {
 
 	out := make([]UserSummary, 0, len(m.users))
 	for _, entry := range m.users {
-		out = append(out, UserSummary{
-			ID:        entry.record.ID,
-			Name:      entry.record.Name,
-			CreatedAt: entry.record.CreatedAt,
-		})
+		out = append(out, summaryFromRecord(entry.record))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].CreatedAt != out[j].CreatedAt {
