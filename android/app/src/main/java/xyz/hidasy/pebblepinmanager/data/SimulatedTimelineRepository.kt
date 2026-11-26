@@ -52,6 +52,9 @@ data class SimulatedTimelinePin(
     val isAutoPin: Boolean
         get() = eventSource == EventSource.NOTIFICATION
 
+    val isRemotePin: Boolean
+        get() = eventSource == EventSource.REMOTE_URL
+
     val pinLayoutType: PinLayoutType
         get() = runCatching { PinLayoutType.valueOf(layoutType) }.getOrDefault(PinLayoutType.GENERIC_PIN)
 
@@ -63,6 +66,8 @@ data class SimulatedTimelinePin(
         durationMinutes = durationMinutes,
         iconUri = iconUri,
         backgroundColor = backgroundColor,
+        primaryColor = primaryColor,
+        secondaryColor = secondaryColor,
         layoutType = layoutType,
         source = source,
         sourceKey = sourceKey,
@@ -98,6 +103,9 @@ data class SimulatedTimelineAction(
 
     val isAutoPin: Boolean
         get() = eventSource == EventSource.NOTIFICATION
+
+    val isRemotePin: Boolean
+        get() = eventSource == EventSource.REMOTE_URL
 }
 
 /**

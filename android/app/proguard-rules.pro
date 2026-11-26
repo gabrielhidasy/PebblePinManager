@@ -53,3 +53,8 @@
 -keepclassmembers class * extends androidx.datastore.preferences.protobuf.GeneratedMessageLite {
     <fields>;
 }
+
+# Preserve WorkManager CoroutineWorker subclasses instantiated reflectively.
+-keep class xyz.hidasy.pebblepinmanager.remote.RemoteFeedSyncWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}

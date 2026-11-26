@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+        Pin Manager for Pebble requires HTTPS by default in RemoteFeedUrlValidator and refuses
+        cleartext HTTP URLs unless the user explicitly enables the per-feed "Allow HTTP (LAN
+        testing only)" toggle. Cleartext is permitted at the platform layer solely so opt-in
+        local/LAN self-hosted companion servers (e.g. http://pins.local:8080/pins.json) can be
+        reached when explicitly requested by the user.
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

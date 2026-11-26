@@ -2,6 +2,7 @@ package xyz.hidasy.pebblepinmanager.ui
 
 import xyz.hidasy.pebblepinmanager.data.SimulatedTimelineAction
 import xyz.hidasy.pebblepinmanager.data.SimulatedTimelinePin
+import xyz.hidasy.pebblepinmanager.domain.EventSource
 import xyz.hidasy.pebblepinmanager.domain.TimelineTimestampFormatter
 import java.time.Instant
 import java.time.ZoneId
@@ -15,6 +16,7 @@ enum class TimelineSourceFilter {
     ALL,
     MANUAL,
     AUTO_PIN,
+    REMOTE_URL,
 }
 
 data class SimulatedTimelineSection(
@@ -43,18 +45,22 @@ data class SimulatedTimelineUiState(
         get() = actionLog.size
 
     val manualPinCount: Int
-        get() = activePins.count { !it.isAutoPin }
+        get() = activePins.count { it.eventSource == EventSource.MANUAL }
 
     val autoPinCount: Int
         get() = activePins.count { it.isAutoPin }
+
+    val remotePinCount: Int
+        get() = activePins.count { it.isRemotePin }
 
     val filteredActivePins: List<SimulatedTimelinePin>
         get() = activePins
             .filter { pin ->
                 when (sourceFilter) {
                     TimelineSourceFilter.ALL -> true
-                    TimelineSourceFilter.MANUAL -> !pin.isAutoPin
+                    TimelineSourceFilter.MANUAL -> pin.eventSource == EventSource.MANUAL
                     TimelineSourceFilter.AUTO_PIN -> pin.isAutoPin
+                    TimelineSourceFilter.REMOTE_URL -> pin.isRemotePin
                 }
             }
             .sortedWith(compareBy<SimulatedTimelinePin> { it.startTimeMillis }.thenBy { it.updatedAtMillis })
@@ -63,8 +69,9 @@ data class SimulatedTimelineUiState(
         get() = actionLog.filter { action ->
             when (sourceFilter) {
                 TimelineSourceFilter.ALL -> true
-                TimelineSourceFilter.MANUAL -> action.source != null && !action.isAutoPin
+                TimelineSourceFilter.MANUAL -> action.eventSource == EventSource.MANUAL
                 TimelineSourceFilter.AUTO_PIN -> action.isAutoPin
+                TimelineSourceFilter.REMOTE_URL -> action.isRemotePin
             }
         }
 

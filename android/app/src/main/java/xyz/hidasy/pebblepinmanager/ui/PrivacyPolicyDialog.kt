@@ -42,8 +42,12 @@ object PrivacyPolicyInfo {
 
     val summaryHighlights: List<PrivacyPolicyHighlight> = listOf(
         PrivacyPolicyHighlight(
-            title = "100% local — no internet access",
-            detail = "${AppBranding.APP_DISPLAY_NAME} does not request the INTERNET permission and never connects to external servers. There are no analytics, telemetry, crash reporting, or ads.",
+            title = "Local-first — opt-in network access only",
+            detail = "${AppBranding.APP_DISPLAY_NAME} makes zero network requests by default. The INTERNET permission is used strictly when you explicitly configure an authenticated Remote Pin Feed URL (HTTPS by default). There are no analytics, telemetry, crash reporting, or ads.",
+        ),
+        PrivacyPolicyHighlight(
+            title = "Encrypted credentials & Auto Backup exclusion",
+            detail = "Remote feed auth tokens and passwords are encrypted on-device using Android Keystore (AES-256-GCM) in a dedicated store excluded from Android Auto Backup and device-to-device transfer.",
         ),
         PrivacyPolicyHighlight(
             title = "Pin history & local Pebble sync",
@@ -55,7 +59,7 @@ object PrivacyPolicyInfo {
         ),
         PrivacyPolicyHighlight(
             title = "Your data, your control",
-            detail = "Delete individual pins in-app, revoke optional permissions in Android Settings at any time, or erase all local data via Clear storage or uninstalling.",
+            detail = "Delete individual pins or remote feeds in-app, revoke optional permissions in Android Settings at any time, or erase all local data via Clear storage or uninstalling.",
         ),
     )
 }

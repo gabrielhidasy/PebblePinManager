@@ -1,4 +1,4 @@
-Add custom events (pins) to your Pebble smartwatch Timeline directly from your Android phone — 100% locally on-device, with zero cloud servers, no accounts, and no internet permission.
+Add custom events (pins) to your Pebble smartwatch Timeline directly from your Android phone — local-first, with zero developer servers, no accounts, and strictly opt-in remote JSON feed sync.
 
 Built for the modern Core Devices Pebble Android app (libpebble3), microPebble, and PebbleKit Android 2, Pin Manager for Pebble works with Pebble Time (basalt), Pebble Time 2 (emery), and compatible Pebble watches.
 
@@ -16,6 +16,9 @@ KEY FEATURES
 • Companion Pebble Watchapp Integration
   Pair with the companion Pebble watchapp to browse recent pins on your wrist, reschedule or delete pins directly from your watch, and trigger "Open Phone App" from your Pebble.
 
+• Optional Remote JSON Pin Feeds (Opt-In)
+  Pull Timeline pins automatically or on demand from your own authenticated HTTPS JSON URL (Bearer token, API key header, or HTTP Basic auth) with ETag / 304 Not Modified caching, WorkManager background sync, and in-place insert/update/delete reconciliation.
+
 • Watchless Preview Mode ("Run without a watch")
   Try the full pin composer, Simulated Timeline, and Auto-Pins rule tester locally on your phone without connecting a physical Pebble watch.
 
@@ -24,7 +27,7 @@ KEY FEATURES
 
 PRIVACY BY DESIGN
 
-• 100% on-device: Requests NO INTERNET permission and cannot contact any external server.
+• Local-first & opt-in internet access: The INTERNET permission is strictly opt-in and dormant unless you explicitly configure a Remote Pin Feed URL. Auth credentials are encrypted on-device with Android Keystore and excluded from Android Auto Backup.
 • No accounts, no analytics, no telemetry, no crash trackers, and no ads.
 • Open-source software (MIT License): source code available at https://github.com/gabrielhidasy/PebblePinManager
 

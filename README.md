@@ -11,7 +11,7 @@ Pin Manager for Pebble consists of two cooperating components built for the mode
 1. **Native Android App (`android/` — Kotlin + Jetpack Compose + Material 3):**
    - Uses **PebbleKit Android 2** (`io.rebble.pebblekit2:client:1.3.2` -> `DefaultPebbleSender.insertTimelinePin` / `deleteTimelinePin`) for direct local timeline delivery — no external server or API keys required.
    - Enter an event **Title** (required), **Description** (optional, up to 512 chars), **Date & Time** in your local timezone (automatically converted to UTC for the Pebble Timeline), plus custom **Icon**, **Duration**, and **Accent Color**.
-   - Displays live companion app & connected watch status (`Pebble Time (basalt)` / `Pebble Time 2 (emery)`), adapts cleanly to phones, foldables, and landscape layouts, persists sent pin history locally via AndroidX DataStore with in-place **Edit** and **Delete** actions, and includes an opt-in on-device **Android Notification Access** (`PebbleNotificationListenerService`) pipeline (`#7`) with per-app allowlist, keyword/regex extraction, time parsing, and deduplicated pin updates.
+   - Displays live companion app & connected watch status (`Pebble Time (basalt)` / `Pebble Time 2 (emery)`), adapts cleanly to phones, foldables, and landscape layouts, persists sent pin history locally via AndroidX DataStore with in-place **Edit** and **Delete** actions, includes an opt-in on-device **Android Notification Access** (`PebbleNotificationListenerService`) pipeline (`#7`) with per-app allowlist, keyword/regex extraction, time parsing, and deduplicated pin updates, and supports opt-in **Remote JSON Pin Feeds** (`#95`, schema documented in [REMOTE_PIN_FEED_SCHEMA.md](REMOTE_PIN_FEED_SCHEMA.md)) with authenticated HTTPS polling, `ETag`/`304 Not Modified` caching, and `WorkManager` background sync.
 2. **Companion Pebble Watchapp (`watchapp/` — C, targeting `aplite`, `basalt`, `chalk`, `diorite`, `emery`, `flint`, `gabbro`):**
    - Lightweight watchapp registered under UUID `e4b7c3a1-8f2d-4c6e-9a51-7b3d2e8f1042` declaring `companionApp.android.apps` (`xyz.hidasy.pebblepinmanager` & `xyz.hidasy.pebblepinmanager.debug`) and `usesPermissions` (`Timeline`, `PebbleKit2`) so Core Devices' `libpebble3` authorizes the Android app to insert/update/delete timeline pins and exchange AppMessages.
    - Displays a scrollable `MenuLayer` of recent sent pins synced from the Android companion app across monochrome, rectangular color, and round (`chalk` / `gabbro`) displays.
@@ -50,7 +50,7 @@ See [INSTALL.md](INSTALL.md) for standalone Docker commands, local SDK builds, s
 
 ## Privacy
 
-Pin Manager for Pebble works 100% locally on your phone and paired Pebble watch — it requests no internet permission, collects no telemetry or analytics, and includes no ads or tracking SDKs. Read the full Privacy Policy at [pebblepinmanager.hidasy.xyz/privacy](https://pebblepinmanager.hidasy.xyz/privacy) (generated from [PRIVACY.md](PRIVACY.md)).
+Pin Manager for Pebble works locally first on your phone and paired Pebble watch — network access is strictly opt-in (only contacting Remote Pin Feed URLs you explicitly configure, with auth secrets encrypted via Android Keystore and excluded from Auto Backup), and the app collects no telemetry or analytics and includes no ads or tracking SDKs. Read the full Privacy Policy at [pebblepinmanager.hidasy.xyz/privacy](https://pebblepinmanager.hidasy.xyz/privacy) (generated from [PRIVACY.md](PRIVACY.md)).
 
 ## Disclaimer
 

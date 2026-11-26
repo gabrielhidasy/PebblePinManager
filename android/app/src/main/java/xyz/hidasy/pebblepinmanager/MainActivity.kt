@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
@@ -74,6 +75,9 @@ import xyz.hidasy.pebblepinmanager.ui.PinComposerViewModel
 import xyz.hidasy.pebblepinmanager.ui.PinComposerViewModelFactory
 import xyz.hidasy.pebblepinmanager.ui.PrivacyPolicyDialog
 import xyz.hidasy.pebblepinmanager.ui.PrivacyPolicyInfo
+import xyz.hidasy.pebblepinmanager.ui.RemoteFeedsRoute
+import xyz.hidasy.pebblepinmanager.ui.RemoteFeedsViewModel
+import xyz.hidasy.pebblepinmanager.ui.RemoteFeedsViewModelFactory
 import xyz.hidasy.pebblepinmanager.ui.SimulatedTimelineRoute
 import xyz.hidasy.pebblepinmanager.ui.SimulatedTimelineViewModel
 import xyz.hidasy.pebblepinmanager.ui.SimulatedTimelineViewModelFactory
@@ -82,6 +86,7 @@ import xyz.hidasy.pebblepinmanager.ui.theme.PebblePinManagerTheme
 private enum class AppTab {
     COMPOSE,
     NOTIFICATIONS,
+    REMOTE_FEEDS,
     TIMELINE,
     DEV,
 }
@@ -107,6 +112,18 @@ class MainActivity : ComponentActivity() {
             sentPinRepository = appContainer.sentPinRepository,
             pinSender = appContainer.pinSender,
             listenerConnectedFlow = PebbleNotificationListenerService.isListenerConnected,
+            onPinsChanged = { appContainer.watchPinSyncManager.syncRecentPins() },
+        )
+    }
+
+    private val remoteFeedsViewModel: RemoteFeedsViewModel by viewModels {
+        RemoteFeedsViewModelFactory(
+            settingsRepository = appContainer.remoteFeedSettingsRepository,
+            secretStore = appContainer.remoteFeedSecretStore,
+            syncEngine = appContainer.remoteFeedSyncEngine,
+            syncScheduler = appContainer.remoteFeedSyncScheduler,
+            sentPinRepository = appContainer.sentPinRepository,
+            pinSender = appContainer.pinSender,
             onPinsChanged = { appContainer.watchPinSyncManager.syncRecentPins() },
         )
     }
@@ -168,6 +185,7 @@ class MainActivity : ComponentActivity() {
                     onSetRunWithoutWatch = ::setRunWithoutWatch,
                     pinComposerViewModel = pinComposerViewModel,
                     notificationSettingsViewModel = notificationSettingsViewModel,
+                    remoteFeedsViewModel = remoteFeedsViewModel,
                     simulatedTimelineViewModel = simulatedTimelineViewModel,
                     devModeViewModel = devModeViewModel,
                     handoffCapabilities = handoffCapabilities,
@@ -261,6 +279,7 @@ private fun PebblePinManagerRoot(
     onSetRunWithoutWatch: (Boolean) -> Unit,
     pinComposerViewModel: PinComposerViewModel,
     notificationSettingsViewModel: NotificationSettingsViewModel,
+    remoteFeedsViewModel: RemoteFeedsViewModel,
     simulatedTimelineViewModel: SimulatedTimelineViewModel,
     devModeViewModel: DevModeViewModel?,
     handoffCapabilities: PhoneHandoffCapabilities?,
@@ -277,6 +296,7 @@ private fun PebblePinManagerRoot(
     var showPrivacyPolicyDialog by rememberSaveable { mutableStateOf(false) }
     var privacyPolicyOpenFailed by rememberSaveable { mutableStateOf(false) }
     val notificationState by notificationSettingsViewModel.uiState.collectAsStateWithLifecycle()
+    val remoteFeedsState by remoteFeedsViewModel.uiState.collectAsStateWithLifecycle()
     val simulatedTimelineState by simulatedTimelineViewModel.uiState.collectAsStateWithLifecycle()
     val devModeState = devModeViewModel?.uiState?.collectAsStateWithLifecycle()?.value
     val isDevModeEnabled = BuildConfig.DEV_MODE_AVAILABLE &&
@@ -334,6 +354,25 @@ private fun PebblePinManagerRoot(
                     }
                 },
                 label = { Text("Auto-Pins") },
+            )
+            NavigationBarItem(
+                selected = selectedTab == AppTab.REMOTE_FEEDS,
+                onClick = { selectedTab = AppTab.REMOTE_FEEDS },
+                icon = {
+                    BadgedBox(
+                        badge = {
+                            if (remoteFeedsState.remotePinCount > 0) {
+                                Badge { Text(remoteFeedsState.remotePinCount.toString()) }
+                            }
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudSync,
+                            contentDescription = "Remote Feeds",
+                        )
+                    }
+                },
+                label = { Text("Feeds") },
             )
             if (appSettings.runWithoutWatch) {
                 NavigationBarItem(
@@ -403,6 +442,15 @@ private fun PebblePinManagerRoot(
             viewModel = notificationSettingsViewModel,
             onOpenNotificationAccessSettings = onOpenNotificationAccessSettings,
             onEditAutoPin = { record ->
+                pinComposerViewModel.startEditingPin(record)
+                selectedTab = AppTab.COMPOSE
+            },
+            onOpenSettings = { showAppSettingsDialog = true },
+            bottomBar = bottomNavigation,
+        )
+        AppTab.REMOTE_FEEDS -> RemoteFeedsRoute(
+            viewModel = remoteFeedsViewModel,
+            onEditRemotePin = { record ->
                 pinComposerViewModel.startEditingPin(record)
                 selectedTab = AppTab.COMPOSE
             },
@@ -529,7 +577,7 @@ internal fun AppSettingsDialog(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "100% local, zero data collection. View summary or open full policy.",
+                            text = "Local-first with opt-in remote feed sync only; zero data collection.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

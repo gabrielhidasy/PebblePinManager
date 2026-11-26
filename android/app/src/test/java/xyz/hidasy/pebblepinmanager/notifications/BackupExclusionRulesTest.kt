@@ -6,11 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.w3c.dom.Document
 import org.w3c.dom.Element
+import xyz.hidasy.pebblepinmanager.remote.EncryptedDataStoreRemoteFeedSecretStore
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 
 class BackupExclusionRulesTest {
-    private val expectedExcludedPath = "datastore/${DataStoreRawNotificationRepository.STORE_NAME}.preferences_pb"
+    private val expectedRawLogExcludedPath = "datastore/${DataStoreRawNotificationRepository.STORE_NAME}.preferences_pb"
+    private val expectedSecretsExcludedPath = "datastore/${EncryptedDataStoreRemoteFeedSecretStore.STORE_NAME}.preferences_pb"
 
     @Test
     fun `manifest wires dataExtractionRules and fullBackupContent while keeping allowBackup enabled`() {
@@ -31,21 +33,24 @@ class BackupExclusionRulesTest {
         assertEquals(0, doc.getElementsByTagName("include").length)
 
         val cloudBackup = doc.getElementsByTagName("cloud-backup").item(0) as Element
-        assertExcludesFile(cloudBackup, expectedExcludedPath)
+        assertExcludesFile(cloudBackup, expectedRawLogExcludedPath)
+        assertExcludesFile(cloudBackup, expectedSecretsExcludedPath)
 
         val deviceTransfer = doc.getElementsByTagName("device-transfer").item(0) as Element
-        assertExcludesFile(deviceTransfer, expectedExcludedPath)
+        assertExcludesFile(deviceTransfer, expectedRawLogExcludedPath)
+        assertExcludesFile(deviceTransfer, expectedSecretsExcludedPath)
     }
 
     @Test
-    fun `backup_rules excludes raw notification dev log on Android 8 to 11 while preserving default backups`() {
+    fun `backup_rules excludes raw notification dev log and remote feed secrets on Android 8 to 11 while preserving default backups`() {
         val doc = parseXml("src/main/res/xml/backup_rules.xml")
         assertEquals("full-backup-content", doc.documentElement.tagName)
 
         // Do not introduce <include> tags so sent_timeline_pins and user preferences stay backed up by default.
         assertEquals(0, doc.getElementsByTagName("include").length)
 
-        assertExcludesFile(doc.documentElement, expectedExcludedPath)
+        assertExcludesFile(doc.documentElement, expectedRawLogExcludedPath)
+        assertExcludesFile(doc.documentElement, expectedSecretsExcludedPath)
     }
 
     private fun assertExcludesFile(section: Element, expectedPath: String) {

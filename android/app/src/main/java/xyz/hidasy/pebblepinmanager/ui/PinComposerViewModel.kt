@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import xyz.hidasy.pebblepinmanager.data.SentPinRecord
 import xyz.hidasy.pebblepinmanager.data.SentPinRepository
 import xyz.hidasy.pebblepinmanager.domain.DurationParseResult
+import xyz.hidasy.pebblepinmanager.domain.EventSource
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinDurationFormatter
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
@@ -89,7 +90,7 @@ class PinComposerViewModel(
     private fun observeSentPins() {
         viewModelScope.launch {
             repository.observeSentPins().collect { allPins ->
-                val manualPins = allPins.filterNot { it.isAutoPin }
+                val manualPins = allPins.filter { it.eventSource == EventSource.MANUAL }
                 _uiState.update { state ->
                     val editingStillExists = state.editingPin == null ||
                         allPins.any { it.id == state.editingPin.id }

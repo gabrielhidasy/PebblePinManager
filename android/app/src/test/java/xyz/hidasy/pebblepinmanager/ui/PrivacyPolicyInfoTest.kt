@@ -34,8 +34,12 @@ class PrivacyPolicyInfoTest {
             "${it.title}: ${it.detail}"
         }
         assertTrue(
-            "Summary should mention zero INTERNET permission",
-            combinedText.contains("INTERNET"),
+            "Summary should mention opt-in INTERNET permission",
+            combinedText.contains("INTERNET") && combinedText.contains("Remote Pin Feed"),
+        )
+        assertTrue(
+            "Summary should mention encrypted credential storage excluded from Auto Backup",
+            combinedText.contains("Android Keystore") && combinedText.contains("Auto Backup"),
         )
         assertTrue(
             "Summary should disclose local-only installed apps query",

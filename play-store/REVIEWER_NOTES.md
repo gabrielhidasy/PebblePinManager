@@ -7,7 +7,7 @@ Use the copy-paste block below in **Google Play Console → Policy and programs 
 ## 1. Copy-Paste Summary for Play Console (App Access / Reviewer Notes)
 
 ```text
-No login or account is required. Pin Manager for Pebble works 100% offline with zero INTERNET permission and is normally paired locally with a Pebble smartwatch via PebbleKit Android 2.
+No login or account is required. Pin Manager for Pebble works offline by default (network access via INTERNET is strictly opt-in and dormant unless the user configures a Remote Pin Feed URL) and is normally paired locally with a Pebble smartwatch via PebbleKit Android 2.
 
 HOW TO TEST WITHOUT PHYSICAL PEBBLE HARDWARE:
 1. Launch the app. On the home "Pins" tab, the status card will report "Pebble companion app unavailable".
@@ -21,7 +21,7 @@ OPTIONAL PERMISSIONS JUSTIFICATION:
 • SYSTEM_ALERT_WINDOW ("Display over other apps" / "Instant Open"):
   Disabled by default and NEVER required to use the app. This app NEVER draws floating windows or overlays over other apps (WindowManager.addView is not used anywhere). On Android 10+ (API 29+), it is used solely as Android's Background Activity Launch (BAL) exemption when a user explicitly triggers "Open Phone App" from their paired Pebble watch while the phone app is in the background. If not granted, the app gracefully falls back to a standard tap-to-open notification (POST_NOTIFICATIONS). Reviewers can inspect this in the top-bar bell icon ("Open from Pebble Watch").
 • BIND_NOTIFICATION_LISTENER_SERVICE (Notification Access):
-  Off by default and strictly opt-in, gated by an in-app Prominent Disclosure modal and scoped only to apps the user explicitly allowlists. Notification content is processed 100% on-device to build local Pebble Timeline pins; the app declares no INTERNET permission and never transmits data off-device. Standard Play Store builds also compile out Developer Mode raw notification capture (BuildConfig.DEV_MODE_AVAILABLE = false).
+  Off by default and strictly opt-in, gated by an in-app Prominent Disclosure modal and scoped only to apps the user explicitly allowlists. Notification content is processed 100% on-device to build local Pebble Timeline pins and is never transmitted over the network (INTERNET is strictly isolated to user-configured Remote Pin Feed pull requests). Standard Play Store builds also compile out Developer Mode raw notification capture (BuildConfig.DEV_MODE_AVAILABLE = false).
 ```
 
 ---
@@ -89,7 +89,7 @@ OPTIONAL PERMISSIONS JUSTIFICATION:
 | Policy Question | Factual Implementation Detail |
 | :--- | :--- |
 | **Enabled by default?** | **No.** Strictly off by default; users must affirmatively agree to the in-app Prominent Disclosure modal (`#78`), enable Android Notification Access in system settings, enable Auto-Pins, and explicitly allowlist one or more source apps. |
-| **Network transmission / third-party sharing?** | **Impossible.** `AndroidManifest.xml` declares **zero `INTERNET` permission** and **zero network/analytics/ad SDKs**. All notification parsing happens strictly on-device. |
+| **Network transmission / third-party sharing?** | **Never.** All notification parsing happens 100% on-device (`NotificationPinPipeline` has zero network dependencies). `INTERNET` is used exclusively by the separate opt-in Remote Pin Feeds HTTP `GET` pull client (`remote/`) for URLs explicitly entered by the user; zero analytics/ad/telemetry SDKs exist anywhere in the app. |
 | **On-device IPC scope** | Generated pins are sent locally via PebbleKit Android 2 (`io.rebble.pebblekit2:client`) exclusively to the user's installed Pebble companion app (Core Devices Pebble app or microPebble) — or to the local Simulated Timeline store when watchless mode is enabled. |
 | **Release build hardening** | Standard Google Play `release` builds set `BuildConfig.DEV_MODE_AVAILABLE = false`, compiling out the Developer Mode raw notification inspector (`raw_notifications_dev_log`). In addition, `#79` excludes `raw_notifications_dev_log.preferences_pb` from Android Auto Backup and device transfer. |
 | **Auditable source references** | `android/app/src/main/java/xyz/hidasy/pebblepinmanager/notifications/PebbleNotificationListenerService.kt`, `NotificationPinPipeline.kt`, `android/app/build.gradle.kts` |

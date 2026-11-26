@@ -673,10 +673,10 @@ private fun PinComposerCard(
     val timeButtonWeight = if (isTwoPane) 0.85f else 0.9f
     var lastEditingLabel by remember { mutableStateOf<String?>(null) }
     uiState.editingPin?.let { editing ->
-        lastEditingLabel = if (editing.isAutoPin) {
-            "Updating existing Auto-Pin ID: ${editing.id}"
-        } else {
-            "Updating existing Pin ID: ${editing.id}"
+        lastEditingLabel = when {
+            editing.isAutoPin -> "Updating existing Auto-Pin ID: ${editing.id}"
+            editing.isRemotePin -> "Updating synced Remote Pin ID: ${editing.id}"
+            else -> "Updating existing Pin ID: ${editing.id}"
         }
     }
     var lastNonNullFeedback by remember { mutableStateOf<SendFeedback?>(null) }

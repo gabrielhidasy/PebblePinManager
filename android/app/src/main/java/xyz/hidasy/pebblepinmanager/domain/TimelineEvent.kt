@@ -61,4 +61,5 @@ enum class PinLayoutType {
 enum class EventSource {
     MANUAL,
     NOTIFICATION,
+    REMOTE_URL,
 }

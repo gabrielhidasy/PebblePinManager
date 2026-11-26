@@ -34,7 +34,7 @@ Complete reference for every Play Console policy form and store setting for **Pi
 
 ### C. Ads
 - [ ] **Does your app contain ads?** → **No, my app does not contain ads.**
-  - Confirmed: zero ad SDKs, zero `INTERNET` permission, zero affiliate/promotional banners.
+  - Confirmed: zero ad SDKs, zero analytics/tracking SDKs, zero affiliate/promotional banners.
 
 ### D. Content Rating (IARC)
 - [ ] **Category:** `Utility, Productivity, Communication, or Other`
@@ -67,8 +67,8 @@ Complete reference for every Play Console policy form and store setting for **Pi
 
 | Data Safety Question | Answer | Rationale (Consistent with `PRIVACY.md` & Codebase) |
 | :--- | :--- | :--- |
-| **Does your app collect or share any of the required user data types?** | **No** | Zero `INTERNET` permission in `AndroidManifest.xml`; zero analytics/telemetry/crash/ad SDKs; all pin history (`sent_timeline_pins`), preferences, and optional Auto-Pin processing occur 100% on-device. |
-| **Data collected (transmitted off device)?** | **None** | App cannot transmit any data off the device. |
+| **Does your app collect or share any of the required user data types?** | **No** | Zero analytics/telemetry/crash/ad SDKs and zero developer-operated servers. `INTERNET` / `ACCESS_NETWORK_STATE` are strictly opt-in for user-configured Remote Pin Feed URLs (HTTP `GET` pull only; auth secrets encrypted on-device with Android Keystore and excluded from Auto Backup). All manual pin history (`sent_timeline_pins`), preferences, and optional Auto-Pin processing occur 100% on-device. |
+| **Data collected (transmitted off device)?** | **None** | Developer collects zero data. Optional Remote Pin Feeds only perform user-initiated `GET` pulls from user-entered HTTPS URLs and never upload personal data, notifications, or installed app lists. |
 | **Data shared with third parties?** | **None** | Manual pins are user-initiated local IPC; opt-in Auto-Pins local IPC to the user's own Pebble companion app (`io.rebble.pebblekit2`) is strictly on-device and gated by the Prominent Disclosure & affirmative consent modal (`#78`), which qualifies as user-consented on-device transfer rather than third-party sharing under Google Play Data Safety policy. |
 | **Is account creation supported?** | **No** | No accounts exist; Play's Account Deletion web URL requirement does not apply. |
 
@@ -82,7 +82,7 @@ Complete reference for every Play Console policy form and store setting for **Pi
 
 | Manifest Entry / Capability | Play Console Declaration Form Required? | Status & Notes |
 | :--- | :--- | :--- |
-| `android.permission.INTERNET` | — | **Not declared** (zero network capability). |
+| `android.permission.INTERNET` & `ACCESS_NETWORK_STATE` | No | Standard permissions, **strictly opt-in** — dormant unless the user explicitly adds a Remote Pin Feed JSON URL (`#95`). HTTPS enforced by default; auth secrets encrypted via Android Keystore and excluded from Auto Backup. |
 | `android.permission.POST_NOTIFICATIONS` | No | Standard runtime permission (Android 13+), optional, used solely for watch handoff tap-to-open prompt. |
 | `android.permission.SYSTEM_ALERT_WINDOW` | No | Special permission, optional, off by default, never draws overlays, used solely as Android 10+ BAL exemption for watch "Open Phone App". Covered in [`REVIEWER_NOTES.md`](REVIEWER_NOTES.md) & `full_description.txt`. |
 | `android.permission.BIND_NOTIFICATION_LISTENER_SERVICE` | No | User-granted system setting, off by default, gated by `#78` Prominent Disclosure modal, 100% on-device. |

@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import xyz.hidasy.pebblepinmanager.data.AppSettingsRepository
 import xyz.hidasy.pebblepinmanager.data.DataStoreAppSettingsRepository
 import xyz.hidasy.pebblepinmanager.data.DataStoreSentPinRepository
@@ -35,6 +36,15 @@ import xyz.hidasy.pebblepinmanager.pebble.TimelinePinSender
 import xyz.hidasy.pebblepinmanager.pebble.WatchAppMessenger
 import xyz.hidasy.pebblepinmanager.pebble.WatchHandoffPromptPreferences
 import xyz.hidasy.pebblepinmanager.pebble.WatchPinSyncManager
+import xyz.hidasy.pebblepinmanager.remote.DataStoreRemoteFeedSettingsRepository
+import xyz.hidasy.pebblepinmanager.remote.EncryptedDataStoreRemoteFeedSecretStore
+import xyz.hidasy.pebblepinmanager.remote.HttpUrlConnectionRemoteFeedClient
+import xyz.hidasy.pebblepinmanager.remote.RemoteFeedHttpClient
+import xyz.hidasy.pebblepinmanager.remote.RemoteFeedSecretStore
+import xyz.hidasy.pebblepinmanager.remote.RemoteFeedSettingsRepository
+import xyz.hidasy.pebblepinmanager.remote.RemoteFeedSyncEngine
+import xyz.hidasy.pebblepinmanager.remote.RemoteFeedSyncScheduler
+import xyz.hidasy.pebblepinmanager.remote.WorkManagerRemoteFeedSyncScheduler
 
 /**
  * Lightweight manual dependency container shared across Activities, PebbleKit 2 listener services,
@@ -136,6 +146,42 @@ class AppContainer(private val application: Application) {
         )
     }
 
+    val remoteFeedSettingsRepository: RemoteFeedSettingsRepository by lazy {
+        DataStoreRemoteFeedSettingsRepository.create(application)
+    }
+
+    val remoteFeedSecretStore: RemoteFeedSecretStore by lazy {
+        EncryptedDataStoreRemoteFeedSecretStore.create(application)
+    }
+
+    val remoteFeedHttpClient: RemoteFeedHttpClient by lazy {
+        HttpUrlConnectionRemoteFeedClient()
+    }
+
+    val remoteFeedSyncScheduler: RemoteFeedSyncScheduler by lazy {
+        WorkManagerRemoteFeedSyncScheduler(application)
+    }
+
+    val remoteFeedSyncEngine: RemoteFeedSyncEngine by lazy {
+        RemoteFeedSyncEngine(
+            settingsRepository = remoteFeedSettingsRepository,
+            secretStore = remoteFeedSecretStore,
+            httpClient = remoteFeedHttpClient,
+            pinSender = pinSender,
+            sentPinRepository = sentPinRepository,
+            onPinsChanged = { watchPinSyncManager.syncRecentPins() },
+        )
+    }
+
+    fun refreshRemoteFeedSchedule() {
+        applicationScope.launch {
+            runCatching {
+                val feeds = remoteFeedSettingsRepository.getSettings().feeds
+                remoteFeedSyncScheduler.updateSchedule(feeds)
+            }
+        }
+    }
+
     fun close() {
         applicationScope.cancel()
         pinSender.close()
@@ -150,6 +196,7 @@ class PebblePinManagerApp : Application() {
         super.onCreate()
         container = AppContainer(this)
         registerActivityLifecycleCallbacks(container.foregroundTracker)
+        container.refreshRemoteFeedSchedule()
     }
 
     override fun onTerminate() {

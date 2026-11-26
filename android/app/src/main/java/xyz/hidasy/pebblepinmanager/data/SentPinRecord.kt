@@ -20,6 +20,8 @@ data class SentPinRecord(
     val durationMinutes: Int? = null,
     val iconUri: String = TimelineEvent.DEFAULT_ICON_URI,
     val backgroundColor: String? = null,
+    val primaryColor: String? = null,
+    val secondaryColor: String? = null,
     val layoutType: String = PinLayoutType.GENERIC_PIN.name,
     val source: String = EventSource.MANUAL.name,
     val sourceKey: String? = null,
@@ -31,6 +33,9 @@ data class SentPinRecord(
     val isAutoPin: Boolean
         get() = eventSource == EventSource.NOTIFICATION
 
+    val isRemotePin: Boolean
+        get() = eventSource == EventSource.REMOTE_URL
+
     fun toTimelineEvent(): TimelineEvent = TimelineEvent(
         id = id,
         title = title,
@@ -39,6 +44,8 @@ data class SentPinRecord(
         durationMinutes = durationMinutes,
         iconUri = iconUri,
         backgroundColor = backgroundColor,
+        primaryColor = primaryColor,
+        secondaryColor = secondaryColor,
         layoutType = runCatching { PinLayoutType.valueOf(layoutType) }.getOrDefault(PinLayoutType.GENERIC_PIN),
         source = eventSource,
         sourceKey = sourceKey,
@@ -58,6 +65,8 @@ data class SentPinRecord(
                 durationMinutes = normalized.durationMinutes,
                 iconUri = normalized.iconUri,
                 backgroundColor = normalized.backgroundColor,
+                primaryColor = normalized.primaryColor,
+                secondaryColor = normalized.secondaryColor,
                 layoutType = normalized.layoutType.name,
                 source = normalized.source.name,
                 sourceKey = normalized.sourceKey,

@@ -194,6 +194,7 @@ fun SimulatedTimelineScreen(
                 activePinCount = uiState.activePinCount,
                 manualCount = uiState.manualPinCount,
                 autoPinCount = uiState.autoPinCount,
+                remotePinCount = uiState.remotePinCount,
                 actionLogCount = uiState.actionLogCount,
             )
 
@@ -251,6 +252,11 @@ fun SimulatedTimelineScreen(
                     selected = uiState.sourceFilter == TimelineSourceFilter.AUTO_PIN,
                     onClick = { onSelectSourceFilter(TimelineSourceFilter.AUTO_PIN) },
                     label = { Text("Auto-Pins (${uiState.autoPinCount})") },
+                )
+                FilterChip(
+                    selected = uiState.sourceFilter == TimelineSourceFilter.REMOTE_URL,
+                    onClick = { onSelectSourceFilter(TimelineSourceFilter.REMOTE_URL) },
+                    label = { Text("Remote (${uiState.remotePinCount})") },
                 )
             }
 
@@ -381,6 +387,7 @@ private fun WatchlessSummaryCard(
     activePinCount: Int,
     manualCount: Int,
     autoPinCount: Int,
+    remotePinCount: Int,
     actionLogCount: Int,
 ) {
     Card(
@@ -412,7 +419,7 @@ private fun WatchlessSummaryCard(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    text = "$activePinCount active ($manualCount manual, $autoPinCount auto) • $actionLogCount operation(s) captured",
+                    text = "$activePinCount active ($manualCount manual, $autoPinCount auto, $remotePinCount remote) • $actionLogCount operation(s) captured",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Medium,
                 )
@@ -671,17 +678,22 @@ private fun SimulatedTimelinePinCard(
                                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                 )
                             }
+                            val sourceLabel = when {
+                                pin.isAutoPin -> "Auto-Pin"
+                                pin.isRemotePin -> "Remote"
+                                else -> "Manual"
+                            }
                             SmallTagChip(
-                                label = if (pin.isAutoPin) "Auto-Pin" else "Manual",
-                                containerColor = if (pin.isAutoPin) {
-                                    MaterialTheme.colorScheme.tertiaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.secondaryContainer
+                                label = sourceLabel,
+                                containerColor = when {
+                                    pin.isAutoPin -> MaterialTheme.colorScheme.tertiaryContainer
+                                    pin.isRemotePin -> MaterialTheme.colorScheme.primaryContainer
+                                    else -> MaterialTheme.colorScheme.secondaryContainer
                                 },
-                                contentColor = if (pin.isAutoPin) {
-                                    MaterialTheme.colorScheme.onTertiaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                contentColor = when {
+                                    pin.isAutoPin -> MaterialTheme.colorScheme.onTertiaryContainer
+                                    pin.isRemotePin -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    else -> MaterialTheme.colorScheme.onSecondaryContainer
                                 },
                             )
                         }
@@ -864,8 +876,13 @@ private fun DeliveryLogEntryCard(
                 }
             }
 
+            val sourceSuffix = when {
+                action.isAutoPin -> " • Auto-Pin"
+                action.isRemotePin -> " • Remote"
+                else -> ""
+            }
             Text(
-                text = "Pin ID: ${action.pinId}${if (action.isAutoPin) " • Auto-Pin" else ""}",
+                text = "Pin ID: ${action.pinId}$sourceSuffix",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

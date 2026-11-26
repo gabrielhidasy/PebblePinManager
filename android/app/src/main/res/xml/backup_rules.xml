@@ -2,11 +2,14 @@
 <full-backup-content>
     <!--
         Exclude optional Developer Mode raw notification logs (which may contain sensitive
-        notifications from other apps such as 2FA codes or messages) from Android Auto Backup
-        on Android 8-11 (API 26-30). All other app DataStores (such as sent_timeline_pins
-        and user preferences) remain backed up normally.
+        notifications from other apps such as 2FA codes or messages) and encrypted remote feed
+        auth credentials from Android Auto Backup on Android 8-11 (API 26-30). All other app
+        DataStores (such as sent_timeline_pins and user preferences) remain backed up normally.
     -->
     <exclude
         domain="file"
         path="datastore/raw_notifications_dev_log.preferences_pb" />
+    <exclude
+        domain="file"
+        path="datastore/remote_feed_secrets.preferences_pb" />
 </full-backup-content>
