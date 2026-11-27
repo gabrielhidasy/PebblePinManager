@@ -221,10 +221,22 @@ func TestCRUDLifecycleAndValidation(t *testing.T) {
 		"id": "ext-deploy-1",
 		"title": "Deploy v1.3",
 		"startTime": "2026-11-26T19:00:00Z",
-		"layoutType": "GENERIC_REMINDER"
+		"layoutType": "CALENDAR_PIN"
 	}`)
 	if putUpdate.Code != http.StatusOK {
 		t.Fatalf("PUT update status = %d body = %s", putUpdate.Code, putUpdate.Body.String())
+	}
+
+	// 4b. Unsupported top-level pin layouts (rejected by PebbleOS pin_db) -> 400 Bad Request.
+	for _, unsupportedLayout := range []string{"GENERIC_REMINDER", "GENERIC_NOTIFICATION"} {
+		badLayout := env.do(t, http.MethodPost, "/api/v1/pins", testWriteToken, `{
+			"title": "Unsupported layout",
+			"startTime": "2026-11-26T19:00:00Z",
+			"layoutType": "`+unsupportedLayout+`"
+		}`)
+		if badLayout.Code != http.StatusBadRequest {
+			t.Fatalf("POST with layoutType=%s status = %d, want 400", unsupportedLayout, badLayout.Code)
+		}
 	}
 
 	// 5. PUT with mismatched body ID -> 400 Bad Request.
@@ -246,7 +258,7 @@ func TestCRUDLifecycleAndValidation(t *testing.T) {
 	if err := json.Unmarshal(getRec.Body.Bytes(), &fetched); err != nil {
 		t.Fatal(err)
 	}
-	if fetched.Title != "Deploy v1.3" || fetched.LayoutType != "GENERIC_REMINDER" {
+	if fetched.Title != "Deploy v1.3" || fetched.LayoutType != "CALENDAR_PIN" {
 		t.Errorf("unexpected fetched pin: %+v", fetched)
 	}
 

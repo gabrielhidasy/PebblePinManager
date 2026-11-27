@@ -84,7 +84,5 @@ object TimelinePinMapper {
     private fun PinLayoutType.toPebbleKitLayoutType(): TimelineLayoutType = when (this) {
         PinLayoutType.GENERIC_PIN -> TimelineLayoutType.GENERIC_PIN
         PinLayoutType.CALENDAR_PIN -> TimelineLayoutType.CALENDAR_PIN
-        PinLayoutType.GENERIC_REMINDER -> TimelineLayoutType.GENERIC_REMINDER
-        PinLayoutType.GENERIC_NOTIFICATION -> TimelineLayoutType.GENERIC_NOTIFICATION
     }
 }

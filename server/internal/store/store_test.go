@@ -183,6 +183,59 @@ func TestStore_CorruptFileFailsFast(t *testing.T) {
 	}
 }
 
+func TestStore_LoadNormalizesLegacyUnsupportedLayoutTypes(t *testing.T) {
+	dataFile := filepath.Join(t.TempDir(), "pins.json")
+	legacyDoc := `{
+		"schemaVersion": 1,
+		"updatedAt": "2026-11-26T12:00:00Z",
+		"pins": [
+			{
+				"id": "legacy-reminder",
+				"title": "Legacy Reminder Pin",
+				"startTime": "2026-11-27T12:00:00Z",
+				"iconUri": "system://images/TIMELINE_CALENDAR",
+				"layoutType": "GENERIC_REMINDER"
+			},
+			{
+				"id": "legacy-notification",
+				"title": "Legacy Notification Pin",
+				"startTime": "2026-11-27T13:00:00Z",
+				"iconUri": "system://images/TIMELINE_CALENDAR",
+				"layoutType": "GENERIC_NOTIFICATION"
+			},
+			{
+				"id": "calendar-pin",
+				"title": "Calendar Pin",
+				"startTime": "2026-11-27T14:00:00Z",
+				"iconUri": "system://images/TIMELINE_CALENDAR",
+				"layoutType": "CALENDAR_PIN"
+			}
+		]
+	}`
+	if err := os.WriteFile(dataFile, []byte(legacyDoc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	s, err := New(dataFile, 48*time.Hour, WithClock(func() time.Time { return now }))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	remPin, ok := s.Get("legacy-reminder")
+	if !ok || remPin.LayoutType != model.LayoutGenericPin {
+		t.Fatalf("legacy-reminder LayoutType = %q (ok=%v), want %q", remPin.LayoutType, ok, model.LayoutGenericPin)
+	}
+	notifPin, ok := s.Get("legacy-notification")
+	if !ok || notifPin.LayoutType != model.LayoutGenericPin {
+		t.Fatalf("legacy-notification LayoutType = %q (ok=%v), want %q", notifPin.LayoutType, ok, model.LayoutGenericPin)
+	}
+	calPin, ok := s.Get("calendar-pin")
+	if !ok || calPin.LayoutType != model.LayoutCalendarPin {
+		t.Fatalf("calendar-pin LayoutType = %q (ok=%v), want %q", calPin.LayoutType, ok, model.LayoutCalendarPin)
+	}
+}
+
 func TestStore_ConcurrentAccess(t *testing.T) {
 	dataFile := filepath.Join(t.TempDir(), "pins.json")
 	s, err := New(dataFile, 0)

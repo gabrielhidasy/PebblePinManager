@@ -55,7 +55,7 @@ Aligned with `TimelineEvent` & `TimelineEventValidator` in the Android app:
 | `backgroundColor` | No | 6-digit hex color (`#RRGGBB` or `RRGGBB`), normalized to uppercase `#RRGGBB`. |
 | `primaryColor` | No | 6-digit hex color, normalized to uppercase `#RRGGBB`. |
 | `secondaryColor` | No | 6-digit hex color, normalized to uppercase `#RRGGBB`. |
-| `layoutType` | No | One of `GENERIC_PIN` (default), `CALENDAR_PIN`, `GENERIC_REMINDER`, `GENERIC_NOTIFICATION`. |
+| `layoutType` | No | One of `GENERIC_PIN` (default) or `CALENDAR_PIN`. (PebbleOS rejects `GENERIC_REMINDER` and `GENERIC_NOTIFICATION` as top-level pin layouts.) |
 
 Unknown JSON fields are rejected with `400 Bad Request`.
 

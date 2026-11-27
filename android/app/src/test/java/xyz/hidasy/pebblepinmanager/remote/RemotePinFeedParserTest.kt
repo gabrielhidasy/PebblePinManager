@@ -41,7 +41,7 @@ class RemotePinFeedParserTest {
                   "id": "ext-epoch-789",
                   "title": "Release Window",
                   "startTimeMillis": $futureEpoch,
-                  "layoutType": "generic_reminder"
+                  "layoutType": "calendar_pin"
                 }
               ]
             }
@@ -78,7 +78,7 @@ class RemotePinFeedParserTest {
 
         val third = success.validEvents[2]
         assertEquals(futureEpoch, third.startTimeMillis)
-        assertEquals(PinLayoutType.GENERIC_REMINDER, third.layoutType)
+        assertEquals(PinLayoutType.CALENDAR_PIN, third.layoutType)
     }
 
     @Test
@@ -124,6 +124,18 @@ class RemotePinFeedParserTest {
                   "layoutType": "UNKNOWN_LAYOUT"
                 },
                 {
+                  "id": "bad-layout-reminder",
+                  "title": "Unsupported reminder pin layout",
+                  "startTime": "2026-11-26T12:00:00Z",
+                  "layoutType": "GENERIC_REMINDER"
+                },
+                {
+                  "id": "bad-layout-notification",
+                  "title": "Unsupported notification pin layout",
+                  "startTime": "2026-11-26T12:00:00Z",
+                  "layoutType": "GENERIC_NOTIFICATION"
+                },
+                {
                   "id": "valid-1",
                   "title": "Duplicate ID should be skipped",
                   "startTime": "2026-11-26T13:00:00Z"
@@ -146,11 +158,15 @@ class RemotePinFeedParserTest {
         val success = result as RemotePinFeedParseResult.Success
 
         assertEquals(listOf("valid-1", "valid-2"), success.validEvents.map { it.id })
-        assertEquals(7, success.diagnostics.size)
+        assertEquals(9, success.diagnostics.size)
         // Seen IDs include entries that had a valid ID even when another field failed validation
         assertTrue("bad-duration" in success.seenIds)
         assertTrue("bad-title" in success.seenIds)
+        assertTrue("bad-layout-reminder" in success.seenIds)
+        assertTrue("bad-layout-notification" in success.seenIds)
         assertTrue(success.diagnostics.any { it.pinId == "bad-duration" && it.reason.contains("1440") })
+        assertTrue(success.diagnostics.any { it.pinId == "bad-layout-reminder" && it.reason.contains("GENERIC_PIN, CALENDAR_PIN") })
+        assertTrue(success.diagnostics.any { it.pinId == "bad-layout-notification" && it.reason.contains("GENERIC_PIN, CALENDAR_PIN") })
         assertTrue(success.diagnostics.any { it.pinId == "valid-1" && it.reason.contains("Duplicate") })
     }
 

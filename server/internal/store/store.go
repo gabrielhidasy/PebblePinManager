@@ -104,6 +104,9 @@ func (s *Store) load() error {
 		if pin.ID == "" {
 			return fmt.Errorf("corrupt pin with blank id in %s", s.dataFile)
 		}
+		if !model.IsValidLayoutType(pin.LayoutType) {
+			pin.LayoutType = model.DefaultLayoutType
+		}
 		s.pins[pin.ID] = clonePin(pin)
 	}
 	return nil

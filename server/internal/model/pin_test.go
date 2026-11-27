@@ -141,6 +141,16 @@ func TestNormalizeAndValidate_Errors(t *testing.T) {
 			pin:      Pin{ID: "p1", Title: "Valid", StartTime: "2026-11-26T14:00:00Z", LayoutType: "SPORTS_PIN"},
 			wantCode: "invalid_layout_type",
 		},
+		{
+			name:     "unsupported top-level GENERIC_REMINDER layoutType",
+			pin:      Pin{ID: "p1", Title: "Valid", StartTime: "2026-11-26T14:00:00Z", LayoutType: "GENERIC_REMINDER"},
+			wantCode: "invalid_layout_type",
+		},
+		{
+			name:     "unsupported top-level GENERIC_NOTIFICATION layoutType",
+			pin:      Pin{ID: "p1", Title: "Valid", StartTime: "2026-11-26T14:00:00Z", LayoutType: "GENERIC_NOTIFICATION"},
+			wantCode: "invalid_layout_type",
+		},
 	}
 
 	for _, tc := range tests {

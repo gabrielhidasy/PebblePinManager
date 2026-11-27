@@ -51,11 +51,15 @@ data class TimelineEvent(
     }
 }
 
+/**
+ * Supported top-level Pebble Timeline pin layouts.
+ *
+ * PebbleOS (`pin_db.c`) explicitly rejects `LayoutIdReminder` (`GENERIC_REMINDER`) and
+ * `LayoutIdNotification` (`GENERIC_NOTIFICATION`) on top-level pins with `-EINVAL`.
+ */
 enum class PinLayoutType {
     GENERIC_PIN,
     CALENDAR_PIN,
-    GENERIC_REMINDER,
-    GENERIC_NOTIFICATION,
 }
 
 enum class EventSource {

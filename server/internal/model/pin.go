@@ -29,10 +29,8 @@ const (
 )
 
 const (
-	LayoutGenericPin          = "GENERIC_PIN"
-	LayoutCalendarPin         = "CALENDAR_PIN"
-	LayoutGenericReminder     = "GENERIC_REMINDER"
-	LayoutGenericNotification = "GENERIC_NOTIFICATION"
+	LayoutGenericPin  = "GENERIC_PIN"
+	LayoutCalendarPin = "CALENDAR_PIN"
 )
 
 var (
@@ -40,13 +38,20 @@ var (
 	validIconURIRegex  = regexp.MustCompile(`^system://images/[A-Z0-9_]+$`)
 	validHexColorRegex = regexp.MustCompile(`^#?[0-9A-Fa-f]{6}$`)
 
+	// PebbleOS (pebble/services/blob_db/pin_db.c) explicitly rejects LayoutIdReminder and
+	// LayoutIdNotification on top-level pins with -EINVAL; only GENERIC_PIN and CALENDAR_PIN
+	// are valid top-level pin layouts via PebbleKit Android 2.
 	validLayoutTypes = map[string]struct{}{
-		LayoutGenericPin:          {},
-		LayoutCalendarPin:         {},
-		LayoutGenericReminder:     {},
-		LayoutGenericNotification: {},
+		LayoutGenericPin:  {},
+		LayoutCalendarPin: {},
 	}
 )
+
+// IsValidLayoutType reports whether layoutType is a supported top-level Pebble Timeline pin layout.
+func IsValidLayoutType(layoutType string) bool {
+	_, ok := validLayoutTypes[layoutType]
+	return ok
+}
 
 // Pin represents a Pebble Timeline pin in the shared JSON feed schema.
 type Pin struct {
@@ -273,11 +278,15 @@ func NormalizeAndValidate(in Pin, now time.Time) (Pin, ValidationErrors) {
 		}
 	}
 
-	if _, ok := validLayoutTypes[out.LayoutType]; !ok {
+	if !IsValidLayoutType(out.LayoutType) {
+		msg := fmt.Sprintf("layoutType must be one of GENERIC_PIN, CALENDAR_PIN (got '%s').", out.LayoutType)
+		if strings.EqualFold(out.LayoutType, "GENERIC_REMINDER") || strings.EqualFold(out.LayoutType, "GENERIC_NOTIFICATION") {
+			msg = fmt.Sprintf("layoutType '%s' is not supported as a top-level Pebble Timeline pin layout (use GENERIC_PIN or CALENDAR_PIN).", out.LayoutType)
+		}
 		errs = append(errs, ValidationError{
 			Field:   "layoutType",
 			Code:    "invalid_layout_type",
-			Message: fmt.Sprintf("layoutType must be one of GENERIC_PIN, CALENDAR_PIN, GENERIC_REMINDER, GENERIC_NOTIFICATION (got '%s').", out.LayoutType),
+			Message: msg,
 		})
 	}
 

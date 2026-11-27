@@ -117,10 +117,8 @@ var webUIIndexTemplate = template.Must(template.New("webui-index").Parse(`<!DOCT
                 <select id="pin-layout" name="layoutType">
                   <option value="GENERIC_PIN">Generic Pin (default)</option>
                   <option value="CALENDAR_PIN">Calendar Pin</option>
-                  <option value="GENERIC_REMINDER">Reminder</option>
-                  <option value="GENERIC_NOTIFICATION">Notification</option>
                 </select>
-                <p class="hint">Pebble Timeline template. Defaults to Generic Pin, matching the Android pin builder.</p>
+                <p class="hint">Pebble Timeline pin template (Generic Pin or Calendar Pin). Defaults to Generic Pin, matching the Android pin builder.</p>
               </div>
               <div class="field">
                 <label for="pin-id">Pin ID (optional)</label>
@@ -1367,7 +1365,9 @@ const webUIJS = `(function () {
 
     clearCustomIconOptions();
     setSelectedIcon(pin.iconUri || DEFAULT_ICON_URI);
-    els.pinLayout.value = pin.layoutType || "GENERIC_PIN";
+    els.pinLayout.value = (pin.layoutType === "CALENDAR_PIN" || pin.layoutType === "GENERIC_PIN")
+      ? pin.layoutType
+      : "GENERIC_PIN";
     setSelectedColor(pin.backgroundColor || "");
     els.pinId.value = pin.id || "";
     els.pinId.disabled = true;

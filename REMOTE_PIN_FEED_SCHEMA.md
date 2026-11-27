@@ -68,7 +68,7 @@ Every pin entry is validated against Pebble Timeline constraints (`TimelineEvent
 | `backgroundColor` | string \| null | No | Optional 6-digit hex color (e.g. `#00AAFF` or `00AAFF`, normalized to `#RRGGBB`) for color Pebble watches. |
 | `primaryColor` | string \| null | No | Optional 6-digit hex color for primary text/elements. |
 | `secondaryColor` | string \| null | No | Optional 6-digit hex color for secondary text/elements. |
-| `layoutType` | string \| null | No | One of `GENERIC_PIN` (default), `CALENDAR_PIN`, `GENERIC_REMINDER`, `GENERIC_NOTIFICATION` (case-insensitive). |
+| `layoutType` | string \| null | No | One of `GENERIC_PIN` (default) or `CALENDAR_PIN` (case-insensitive). PebbleOS rejects `GENERIC_REMINDER` and `GENERIC_NOTIFICATION` as top-level pin layouts (`pin_db.c` returns `-EINVAL`); those layouts are only used for attached pin reminders or create/update notifications. |
 
 ## Reconciliation Semantics
 

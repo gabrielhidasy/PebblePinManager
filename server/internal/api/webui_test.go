@@ -116,6 +116,13 @@ func TestWebUI_AssetsSecurityHeadersAndExactRootMatch(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Errorf("Content-Type = %q", ct)
 	}
+	htmlBody := rec.Body.String()
+	if !strings.Contains(htmlBody, `value="GENERIC_PIN"`) || !strings.Contains(htmlBody, `value="CALENDAR_PIN"`) {
+		t.Errorf("expected GENERIC_PIN and CALENDAR_PIN layout options in Web UI HTML")
+	}
+	if strings.Contains(htmlBody, "GENERIC_REMINDER") || strings.Contains(htmlBody, "GENERIC_NOTIFICATION") {
+		t.Errorf("Web UI HTML must not offer unsupported top-level layouts GENERIC_REMINDER or GENERIC_NOTIFICATION")
+	}
 	csp := rec.Header().Get("Content-Security-Policy")
 	if !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "unsafe-inline") {
 		t.Errorf("expected strict CSP without unsafe-inline, got %q", csp)

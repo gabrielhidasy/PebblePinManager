@@ -9,6 +9,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import xyz.hidasy.pebblepinmanager.data.SentPinRecord
 import xyz.hidasy.pebblepinmanager.domain.PinAccentColor
 import xyz.hidasy.pebblepinmanager.domain.PinIcon
 import xyz.hidasy.pebblepinmanager.domain.PinLayoutType
@@ -187,5 +188,24 @@ class TimelinePinMapperTest {
         assertEquals(60.minutes, coloredPin.duration)
         assertEquals("system://images/TIMELINE_WEATHER", coloredPin.layout.tinyIcon)
         assertEquals("#00AAFF", coloredPin.layout.backgroundColor)
+    }
+
+    @Test
+    fun `legacy stored reminder or notification layout falls back safely to GENERIC_PIN`() {
+        val startMillis = Instant.parse("2026-11-21T19:30:00Z").toEpochMilli()
+        for (legacyLayout in listOf("GENERIC_REMINDER", "GENERIC_NOTIFICATION")) {
+            val record = SentPinRecord(
+                id = "ppm-legacy",
+                title = "Legacy Pin",
+                startTimeMillis = startMillis,
+                layoutType = legacyLayout,
+                sentAtMillis = startMillis,
+            )
+            val event = record.toTimelineEvent()
+            assertEquals(PinLayoutType.GENERIC_PIN, event.layoutType)
+
+            val pin = TimelinePinMapper.toPebbleKitPin(event)
+            assertEquals(TimelineLayoutType.GENERIC_PIN, pin.layout.type)
+        }
     }
 }
