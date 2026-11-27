@@ -27,6 +27,7 @@ Runs the complete automated user journey across BOTH emulators simultaneously:
 from __future__ import annotations
 
 import argparse
+import atexit
 import hashlib
 import json
 import math
@@ -362,37 +363,148 @@ class AdbDriver:
         dest.write_bytes(proc.stdout)
 
 
+PEBBLE_EMULATOR_PROC_MARKERS = ("qemu-pebble", "pypkjs", "websockify")
+
+
+def _is_pebble_emulator_pid(pid: int) -> bool:
+    """Return True if *pid* is an alive Pebble emulator process (guards against PID reuse)."""
+    if pid <= 0:
+        return False
+    proc_root = Path("/proc")
+    if proc_root.is_dir():
+        cmdline_path = proc_root / str(pid) / "cmdline"
+        try:
+            raw = cmdline_path.read_bytes()
+        except FileNotFoundError:
+            return False
+        except OSError:
+            return False
+        if not raw:
+            return False
+        cmdline = raw.replace(b"\x00", b" ").decode("utf-8", errors="replace").lower()
+        return any(marker in cmdline for marker in PEBBLE_EMULATOR_PROC_MARKERS)
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _extract_emulator_pids(data: dict[str, Any], platform: str | None = None) -> set[int]:
+    """Extract qemu/pypkjs/websockify PIDs from a parsed pb-emulator.json mapping."""
+    pids: set[int] = set()
+    platforms = [platform] if platform is not None else list(data.keys())
+    for plat in platforms:
+        plat_map = data.get(plat)
+        if not isinstance(plat_map, dict):
+            continue
+        for ver_info in plat_map.values():
+            if not isinstance(ver_info, dict):
+                continue
+            for key in ("qemu", "pypkjs", "websockify"):
+                entry = ver_info.get(key)
+                if isinstance(entry, dict):
+                    raw_pid = entry.get("pid")
+                    if isinstance(raw_pid, int) and raw_pid > 0:
+                        pids.add(raw_pid)
+    return pids
+
+
 class PebbleQemuController:
-    def __init__(self, platform: str, pebble_bin: str = "pebble") -> None:
+    def __init__(
+        self,
+        platform: str,
+        pebble_bin: str = "pebble",
+        tmpdir: Path | None = None,
+    ) -> None:
         self.platform = platform
         self.pebble_bin = pebble_bin
+        self.tmpdir = tmpdir
         self.monitor_port: int | None = None
+        self._tracked_pids: set[int] = set()
+        atexit.register(self._atexit_cleanup)
+
+    def pebble_env(self) -> dict[str, str] | None:
+        if self.tmpdir is None:
+            return None
+        self.tmpdir.mkdir(parents=True, exist_ok=True)
+        env = dict(os.environ)
+        env["TMPDIR"] = str(self.tmpdir)
+        return env
+
+    def _info_path(self) -> Path:
+        base = self.tmpdir if self.tmpdir is not None else Path(tempfile.gettempdir())
+        return base / "pb-emulator.json"
+
+    def _record_pids_from_info(self) -> set[int]:
+        info_path = self._info_path()
+        if not info_path.is_file():
+            return set()
+        try:
+            data = json.loads(info_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return set()
+        if not isinstance(data, dict):
+            return set()
+        scope_platform = None if self.tmpdir is not None else self.platform
+        found = _extract_emulator_pids(data, platform=scope_platform)
+        self._tracked_pids.update(found)
+        return found
+
+    def _atexit_cleanup(self) -> None:
+        if self._tracked_pids or (self.tmpdir is not None and self._info_path().is_file()):
+            try:
+                self.kill()
+            except Exception:
+                pass
+
+    def kill(self) -> None:
+        self._record_pids_from_info()
+        run_cmd([self.pebble_bin, "kill", "--force"], check=False, timeout=15, env=self.pebble_env())
+        for pid in sorted(self._tracked_pids):
+            if _is_pebble_emulator_pid(pid):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+        self._tracked_pids.clear()
+        if self.tmpdir is not None:
+            self._info_path().unlink(missing_ok=True)
 
     def install_and_boot(self, pbw_path: Path) -> int:
-        run_cmd([self.pebble_bin, "kill", "--force"], check=False, timeout=15)
+        self.kill()
         time.sleep(0.5)
         log(f"Installing watchapp ({pbw_path.name}) into Pebble QEMU ({self.platform})...")
-        run_cmd(
-            [self.pebble_bin, "install", "--emulator", self.platform, str(pbw_path)],
-            timeout=120,
-            check=True,
-        )
-        self.monitor_port = self._discover_monitor_port()
+        try:
+            run_cmd(
+                [self.pebble_bin, "install", "--emulator", self.platform, str(pbw_path)],
+                timeout=120,
+                check=True,
+                env=self.pebble_env(),
+            )
+            self.monitor_port = self._discover_monitor_port()
+        except Exception:
+            self.kill()
+            raise
         log(f"Pebble QEMU ({self.platform}) booted; monitor port={self.monitor_port}")
         return self.monitor_port
 
     def _discover_monitor_port(self, timeout: float = 15.0) -> int:
-        info_path = Path(tempfile.gettempdir()) / "pb-emulator.json"
+        info_path = self._info_path()
         deadline = time.time() + timeout
         while time.time() < deadline:
             if info_path.is_file():
                 try:
                     data = json.loads(info_path.read_text(encoding="utf-8"))
-                    plat_map = data.get(self.platform, {})
-                    for ver_info in plat_map.values():
-                        mon = ver_info.get("qemu", {}).get("monitor")
-                        if mon:
-                            return int(mon)
+                    if isinstance(data, dict):
+                        self._tracked_pids.update(_extract_emulator_pids(data, platform=self.platform))
+                        plat_map = data.get(self.platform, {})
+                        for ver_info in plat_map.values():
+                            mon = ver_info.get("qemu", {}).get("monitor")
+                            if mon:
+                                return int(mon)
                 except (OSError, ValueError, TypeError):
                     pass
             time.sleep(0.3)
@@ -402,7 +514,7 @@ class PebbleQemuController:
         cmd = [self.pebble_bin, "emu-button", "--emulator", self.platform, "click", button]
         if repeat > 1:
             cmd.extend(["--repeat", str(repeat), "--interval", "350"])
-        run_cmd(cmd, timeout=20, check=True)
+        run_cmd(cmd, timeout=20, check=True, env=self.pebble_env())
 
     def screendump(self, ppm_path: Path) -> bool:
         if self.monitor_port is None:
@@ -1052,7 +1164,9 @@ def run_platform_e2e(
         events_file.unlink()
 
     adb = AdbDriver(adb_bin=adb_bin, serial=serial)
-    pebble = PebbleQemuController(platform=platform, pebble_bin=pebble_bin)
+    pebble_tmp_dir = work_dir / "pebble-tmp"
+    pebble_tmp_dir.mkdir(parents=True, exist_ok=True)
+    pebble = PebbleQemuController(platform=platform, pebble_bin=pebble_bin, tmpdir=pebble_tmp_dir)
 
     bridge_log_path = logs_dir / f"bridge-{platform}.log"
     bridge_log_fh = open(bridge_log_path, "w", encoding="utf-8")
@@ -1099,6 +1213,7 @@ def run_platform_e2e(
             stdout=bridge_log_fh,
             stderr=bridge_log_fh,
             text=True,
+            env=pebble.pebble_env(),
         )
         wait_for_bridge_health(bridge_port)
         log(f"Host Pebble bridge healthy on 127.0.0.1:{bridge_port}")
@@ -1794,7 +1909,7 @@ def run_platform_e2e(
             except subprocess.TimeoutExpired:
                 bridge_proc.kill()
         bridge_log_fh.close()
-        run_cmd([pebble_bin, "kill", "--force"], check=False, timeout=15)
+        pebble.kill()
 
 
 def write_summary(output_dir: Path, reports: list[dict[str, Any]]) -> Path:
@@ -1864,7 +1979,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _install_termination_handlers() -> None:
+    """Convert SIGTERM into SystemExit so finally blocks always kill QEMU emulators."""
+    def _handle_term(signum: int, _frame: Any) -> None:
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, _handle_term)
+
+
 def main(argv: list[str]) -> int:
+    _install_termination_handlers()
     args = parse_args(argv)
     raw_platforms = args.platforms.strip().lower()
     if raw_platforms == "both":

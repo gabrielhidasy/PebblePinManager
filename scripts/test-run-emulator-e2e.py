@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -398,6 +400,83 @@ class RunEmulatorE2ETests(unittest.TestCase):
             text = summary_path.read_text(encoding="utf-8")
             self.assertIn("| `emery` | Manual Pins | **PASSED** | 2/2 | `1280x720` (h264) | 40.5s | 512 KB |", text)
             self.assertIn("| `emery` | Auto-Pins | **PASSED** | 2/2 | `1280x720` (h264) | 48.2s | 640 KB |", text)
+
+    def test_qemu_controller_isolated_tmpdir_and_tracked_pid_sigkill(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pebble-emu-cleanup-test-") as tmp:
+            iso_tmp = pathlib.Path(tmp) / "pebble-tmp"
+            pbw = pathlib.Path(tmp) / "app.pbw"
+            pbw.write_bytes(b"pbw")
+            ctrl = e2e.PebbleQemuController(platform="emery", pebble_bin="pebble", tmpdir=iso_tmp)
+
+            recorded_envs: list[dict[str, str] | None] = []
+
+            def fake_run_cmd(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                env = kwargs.get("env")
+                recorded_envs.append(env if isinstance(env, dict) else None)
+                if args[:2] == ["pebble", "install"]:
+                    info = {
+                        "emery": {
+                            "4.44": {
+                                "qemu": {"pid": 900001, "monitor": 45678},
+                                "pypkjs": {"pid": 900002, "port": 45679},
+                            }
+                        }
+                    }
+                    (iso_tmp / "pb-emulator.json").write_text(json.dumps(info), encoding="utf-8")
+                return subprocess.CompletedProcess(args, 0, "", "")
+
+            killed: list[tuple[int, int]] = []
+
+            with (
+                mock.patch.object(e2e, "run_cmd", side_effect=fake_run_cmd),
+                mock.patch.object(e2e, "_is_pebble_emulator_pid", side_effect=lambda pid: pid == 900001),
+                mock.patch.object(e2e.os, "kill", side_effect=lambda pid, sig: killed.append((pid, sig))),
+                mock.patch.object(e2e.time, "sleep"),
+            ):
+                mon = ctrl.install_and_boot(pbw)
+                self.assertEqual(mon, 45678)
+                self.assertEqual(ctrl._tracked_pids, {900001, 900002})
+                # Simulate pb-emulator.json disappearing before kill()
+                (iso_tmp / "pb-emulator.json").unlink()
+                ctrl.kill()
+
+            self.assertTrue(all(env and env.get("TMPDIR") == str(iso_tmp) for env in recorded_envs))
+            self.assertEqual(killed, [(900001, e2e.signal.SIGKILL)])
+            self.assertEqual(ctrl._tracked_pids, set())
+
+    def test_qemu_controller_cleans_up_when_install_fails_after_spawning(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pebble-emu-fail-test-") as tmp:
+            iso_tmp = pathlib.Path(tmp) / "pebble-tmp"
+            pbw = pathlib.Path(tmp) / "app.pbw"
+            pbw.write_bytes(b"pbw")
+            ctrl = e2e.PebbleQemuController(platform="basalt", pebble_bin="pebble", tmpdir=iso_tmp)
+
+            def fake_run_cmd(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                if args[:2] == ["pebble", "install"]:
+                    info = {
+                        "basalt": {
+                            "4.44": {
+                                "qemu": {"pid": 900010, "monitor": 45680},
+                                "pypkjs": {"pid": 900011, "port": 45681},
+                            }
+                        }
+                    }
+                    (iso_tmp / "pb-emulator.json").write_text(json.dumps(info), encoding="utf-8")
+                    raise subprocess.TimeoutExpired(args, 120)
+                return subprocess.CompletedProcess(args, 0, "", "")
+
+            killed: list[tuple[int, int]] = []
+            with (
+                mock.patch.object(e2e, "run_cmd", side_effect=fake_run_cmd),
+                mock.patch.object(e2e, "_is_pebble_emulator_pid", return_value=True),
+                mock.patch.object(e2e.os, "kill", side_effect=lambda pid, sig: killed.append((pid, sig))),
+                mock.patch.object(e2e.time, "sleep"),
+            ):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    ctrl.install_and_boot(pbw)
+
+            self.assertEqual(killed, [(900010, e2e.signal.SIGKILL), (900011, e2e.signal.SIGKILL)])
+            self.assertFalse((iso_tmp / "pb-emulator.json").exists())
 
 
 if __name__ == "__main__":
